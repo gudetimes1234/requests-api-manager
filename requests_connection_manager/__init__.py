@@ -1,36 +1,25 @@
 """
-requests_connection_manager - A Python package that extends requests with connection pooling,
-retries, rate limiting, and circuit breaker functionality.
+requests-connection-manager - Enhanced HTTP connection management for Python
 """
 
 from .manager import ConnectionManager
+from .async_manager import AsyncConnectionManager
 from .exceptions import (
     ConnectionManagerError,
     RateLimitExceeded,
     CircuitBreakerOpen,
     MaxRetriesExceeded
 )
-from .plugins import (
-    PluginManager,
-    RequestContext,
-    ResponseContext,
-    ErrorContext,
-    HookType
-)
+from .plugins import PluginManager, HookType
 
 __version__ = "1.0.0"
-__author__ = "requests-connection-manager"
-__email__ = "contact@requests-connection-manager.com"
-
 __all__ = [
     "ConnectionManager",
-    "ConnectionManagerError",
+    "AsyncConnectionManager",
+    "ConnectionManagerError", 
     "RateLimitExceeded",
     "CircuitBreakerOpen",
     "MaxRetriesExceeded",
     "PluginManager",
-    "RequestContext",
-    "ResponseContext", 
-    "ErrorContext",
     "HookType"
 ]

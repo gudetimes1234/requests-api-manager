@@ -254,6 +254,38 @@ for thread in threads:
 manager.close()
 ```
 
+### Async Support
+
+```python
+import asyncio
+from requests_connection_manager import AsyncConnectionManager
+
+async def main():
+    # Async context manager
+    async with AsyncConnectionManager() as manager:
+        # Single async request
+        response = await manager.get('https://httpbin.org/get')
+        print(f"Status: {response.status_code}")
+        
+        # Concurrent async requests
+        tasks = [
+            manager.get('https://httpbin.org/delay/1'),
+            manager.get('https://httpbin.org/delay/1'),
+            manager.get('https://httpbin.org/delay/1')
+        ]
+        responses = await asyncio.gather(*tasks)
+        
+        # Async batch requests with controlled parallelism
+        requests_data = [
+            ('GET', 'https://httpbin.org/get', {}),
+            ('POST', 'https://httpbin.org/post', {'json': {'key': 'value'}}),
+            ('GET', 'https://httpbin.org/delay/1', {})
+        ]
+        results = await manager.batch_request(requests_data, max_workers=3)
+
+asyncio.run(main())
+```
+
 ## API Reference
 
 ### ConnectionManager

@@ -90,8 +90,6 @@ class ConnectionManager:
         
         logger.info("ConnectionManager initialized with pooling, retries, rate limiting, and circuit breaker")
     
-    @sleep_and_retry
-    @limits(calls=100, period=60)  # Default rate limit - will be overridden by instance method
     def _rate_limited_request(self, method: str, url: str, **kwargs) -> requests.Response:
         """
         Make HTTP request with rate limiting using ratelimit decorator.
@@ -134,15 +132,14 @@ class ConnectionManager:
             ConnectionManagerError: For other connection manager errors
         """
         try:
-            # Apply dynamic rate limiting by creating a new decorator with instance values
-            rate_limited_func = sleep_and_retry(
-                limits(calls=self.rate_limit_requests, period=self.rate_limit_period)(
-                    self._rate_limited_request
-                )
-            )
+            # Create rate limited function with instance-specific limits
+            @sleep_and_retry
+            @limits(calls=self.rate_limit_requests, period=self.rate_limit_period)
+            def rate_limited_request():
+                return self._rate_limited_request(method, url, **kwargs)
             
             # Make request through circuit breaker and rate limiter
-            response = self.circuit_breaker(rate_limited_func)(method, url, **kwargs)
+            response = self.circuit_breaker(rate_limited_request)()
             
             logger.debug(f"Successful {method} request to {url}")
             return response

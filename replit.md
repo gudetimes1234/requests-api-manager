@@ -29,18 +29,18 @@ The system follows a modular architecture with clear separation of concerns:
   - Thread-safe operation using locks
   - Configurable retry strategies via `urllib3.util.retry.Retry`
 
-### 2. Rate Limiting (`TokenBucket`)
-- **Algorithm**: Token bucket implementation
+### 2. Rate Limiting (External `ratelimit` Library)
+- **Library**: Uses `ratelimit` package with decorators
 - **Features**:
-  - Configurable capacity and refill rate
-  - Thread-safe token consumption
-  - Automatic token refill based on time elapsed
+  - `@sleep_and_retry` and `@limits` decorators for automatic rate limiting
+  - Configurable calls per period
+  - Thread-safe operation handled by library
   - Prevents API abuse through request throttling
 
-### 3. Circuit Breaker Pattern
+### 3. Circuit Breaker Pattern (External `pybreaker` Library)
+- **Library**: Uses `pybreaker.CircuitBreaker` 
 - **Purpose**: Fail-fast mechanism for handling service failures
-- **States**: Closed, Open, Half-Open
-- **Benefits**: Prevents cascading failures and provides graceful degradation
+- **Benefits**: Automatic failure detection and recovery, prevents cascading failures
 
 ### 4. Exception Hierarchy (`exceptions.py`)
 - **Base**: `ConnectionManagerError` for all package-specific errors
@@ -90,7 +90,8 @@ The system follows a modular architecture with clear separation of concerns:
 
 ## Changelog
 
-- June 28, 2025. Initial setup
+- June 28, 2025: Initial setup with custom implementations
+- June 28, 2025: Refactored to use external libraries (ratelimit, pybreaker) instead of custom TokenBucket and CircuitBreaker implementations
 
 ## User Preferences
 

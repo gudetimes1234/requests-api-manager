@@ -21,6 +21,7 @@ from .exceptions import (
     MaxRetriesExceeded
 )
 from .plugins import PluginManager, RequestContext, ResponseContext, ErrorContext, HookType
+from .utils import safe_log_request, safe_log_response, safe_log_error
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -187,11 +188,23 @@ class ConnectionManager:
         if 'timeout' not in kwargs:
             kwargs['timeout'] = request_timeout
         
+        # Safe logging of request details
+        safe_log_request(
+            method=method,
+            url=url,
+            headers=kwargs.get('headers'),
+            payload=kwargs.get('json') or kwargs.get('data')
+        )
+        
         try:
             response = self.session.request(method=method, url=url, **kwargs)
+            
+            # Safe logging of response details
+            safe_log_response(response)
+            
             return response
         except Exception as e:
-            logger.error(f"Request failed: {method} {url} - {str(e)}")
+            safe_log_error(e, method, url)
             raise
     
     def request(self, method: str, url: str, **kwargs) -> requests.Response:
@@ -249,15 +262,15 @@ class ConnectionManager:
             response_context = ResponseContext(response, request_context)
             self.plugin_manager.execute_post_response_hooks(response_context)
             
-            logger.debug(f"Successful {method} request to {url}")
+            logger.debug(f"Successful {method} request completed")
             return response_context.response
             
         except pybreaker.CircuitBreakerError:
-            logger.error(f"Circuit breaker is open for {method} {url}")
+            safe_log_error(CircuitBreakerOpen("Circuit breaker is open"), method, url)
             error = CircuitBreakerOpen("Circuit breaker is open")
             return self._handle_error(error, request_context)
         except Exception as e:
-            logger.error(f"Request failed: {method} {url} - {str(e)}")
+            safe_log_error(e, method, url)
             return self._handle_error(e, request_context)
     
     def _get_rate_limiter_for_endpoint(self, endpoint_config: Dict[str, Any]) -> Callable:
@@ -616,7 +629,8 @@ class ConnectionManager:
                 response = self.request(method, url, **kwargs)
                 return index, response
             except Exception as e:
-                logger.warning(f"Batch request {index} failed: {method} {url} - {str(e)}")
+                safe_log_error(e, method, url, level=logging.WARNING)
+                logger.warning(f"Batch request {index} failed")
                 return index, e
         
         # Execute requests concurrently using ThreadPoolExecutor

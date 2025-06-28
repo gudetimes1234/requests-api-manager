@@ -1,5 +1,5 @@
 """
-requests-connection-manager - Enhanced HTTP connection management for Python
+requests-connection-manager - Enhanced HTTP connection management with pooling, retries, rate limiting, and circuit breaker functionality.
 """
 
 from .manager import ConnectionManager
@@ -10,7 +10,20 @@ from .exceptions import (
     CircuitBreakerOpen,
     MaxRetriesExceeded
 )
-from .plugins import PluginManager, HookType
+from .plugins import (
+    PluginManager,
+    RequestContext,
+    ResponseContext,
+    ErrorContext,
+    HookType
+)
+from .utils import (
+    redact_sensitive_data,
+    safe_log_request,
+    safe_log_response,
+    safe_log_error,
+    is_sensitive_field
+)
 
 __version__ = "1.0.0"
 __all__ = [
@@ -21,5 +34,13 @@ __all__ = [
     "CircuitBreakerOpen",
     "MaxRetriesExceeded",
     "PluginManager",
-    "HookType"
+    "RequestContext",
+    "ResponseContext", 
+    "ErrorContext",
+    "HookType",
+    "redact_sensitive_data",
+    "safe_log_request",
+    "safe_log_response",
+    "safe_log_error",
+    "is_sensitive_field"
 ]

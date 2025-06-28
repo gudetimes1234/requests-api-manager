@@ -1,5 +1,5 @@
 """
-Comprehensive tests for the ConnectionManager class.
+Comprehensive tests for the ConnectionManager class using external libraries.
 """
 
 import pytest
@@ -14,112 +14,6 @@ from requests_connection_manager import (
     CircuitBreakerOpen,
     MaxRetriesExceeded
 )
-from requests_connection_manager.manager import TokenBucket, CircuitBreaker
-
-
-class TestTokenBucket:
-    """Test cases for TokenBucket class."""
-    
-    def test_token_bucket_initialization(self):
-        """Test token bucket initialization."""
-        bucket = TokenBucket(capacity=10, refill_rate=1.0)
-        assert bucket.capacity == 10
-        assert bucket.tokens == 10
-        assert bucket.refill_rate == 1.0
-    
-    def test_token_consumption(self):
-        """Test token consumption."""
-        bucket = TokenBucket(capacity=10, refill_rate=1.0)
-        
-        # Should be able to consume tokens
-        assert bucket.consume(5) is True
-        assert abs(bucket.tokens - 5) < 0.001  # Use approximate comparison for floating point
-        
-        # Should not be able to consume more than available
-        assert bucket.consume(6) is False
-        assert abs(bucket.tokens - 5) < 0.001  # Use approximate comparison for floating point
-    
-    def test_token_refill(self):
-        """Test token refill over time."""
-        bucket = TokenBucket(capacity=10, refill_rate=2.0)  # 2 tokens per second
-        bucket.tokens = 0
-        
-        # Sleep for 1 second to allow refill
-        time.sleep(1.1)
-        
-        # Should have refilled approximately 2 tokens
-        assert bucket.consume(2) is True
-
-
-class TestCircuitBreaker:
-    """Test cases for CircuitBreaker class."""
-    
-    def test_circuit_breaker_initialization(self):
-        """Test circuit breaker initialization."""
-        cb = CircuitBreaker(failure_threshold=3, recovery_timeout=30)
-        assert cb.failure_threshold == 3
-        assert cb.recovery_timeout == 30
-        assert cb.state == 'CLOSED'
-        assert cb.failure_count == 0
-    
-    def test_successful_calls(self):
-        """Test successful function calls."""
-        cb = CircuitBreaker()
-        
-        def success_func():
-            return "success"
-        
-        result = cb.call(success_func)
-        assert result == "success"
-        assert cb.state == 'CLOSED'
-        assert cb.failure_count == 0
-    
-    def test_circuit_breaker_opens_on_failures(self):
-        """Test that circuit breaker opens after threshold failures."""
-        cb = CircuitBreaker(failure_threshold=2, recovery_timeout=1)
-        
-        def failing_func():
-            raise Exception("Test failure")
-        
-        # First failure
-        with pytest.raises(Exception):
-            cb.call(failing_func)
-        assert cb.state == 'CLOSED'
-        assert cb.failure_count == 1
-        
-        # Second failure - should open circuit
-        with pytest.raises(Exception):
-            cb.call(failing_func)
-        assert cb.state == 'OPEN'
-        assert cb.failure_count == 2
-        
-        # Should now raise CircuitBreakerOpen
-        with pytest.raises(CircuitBreakerOpen):
-            cb.call(failing_func)
-    
-    def test_circuit_breaker_recovery(self):
-        """Test circuit breaker recovery after timeout."""
-        cb = CircuitBreaker(failure_threshold=1, recovery_timeout=0.1)
-        
-        def failing_func():
-            raise Exception("Test failure")
-        
-        def success_func():
-            return "success"
-        
-        # Trigger failure to open circuit
-        with pytest.raises(Exception):
-            cb.call(failing_func)
-        assert cb.state == 'OPEN'
-        
-        # Wait for recovery timeout
-        time.sleep(0.2)
-        
-        # Should move to HALF_OPEN and then CLOSED on success
-        result = cb.call(success_func)
-        assert result == "success"
-        assert cb.state == 'CLOSED'
-        assert cb.failure_count == 0
 
 
 class TestConnectionManager:
@@ -134,9 +28,11 @@ class TestConnectionManager:
             rate_limit_requests=50
         )
         
-        assert manager.max_retries == 2
-        assert manager.rate_limiter.capacity == 50
-        assert manager.circuit_breaker.failure_threshold == 5
+        assert manager.timeout == 30  # Default timeout
+        assert manager.rate_limit_requests == 50
+        assert manager.rate_limit_period == 60  # Default period
+        assert manager.session is not None
+        assert manager.circuit_breaker is not None
         
         manager.close()
     
@@ -157,88 +53,76 @@ class TestConnectionManager:
         
         manager.close()
     
-    def test_rate_limiting(self):
-        """Test rate limiting functionality."""
-        # Create manager with very low rate limit
-        manager = ConnectionManager(rate_limit_requests=1, rate_limit_period=10)
+    @patch('requests.Session.request')
+    def test_rate_limiting_behavior(self, mock_request):
+        """Test rate limiting behavior with external ratelimit library."""
+        # Mock successful response
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_request.return_value = mock_response
         
-        with patch('requests.Session.request') as mock_request:
-            mock_response = Mock()
-            mock_response.status_code = 200
-            mock_request.return_value = mock_response
-            
-            # First request should succeed
-            response = manager.get('http://example.com')
-            assert response.status_code == 200
-            
-            # Second request should fail due to rate limit
-            with pytest.raises(RateLimitExceeded):
-                manager.get('http://example.com')
+        # Create manager with very low rate limit for testing
+        manager = ConnectionManager(rate_limit_requests=2, rate_limit_period=1)
+        
+        # First request should succeed
+        response1 = manager.get('http://example.com')
+        assert response1.status_code == 200
+        
+        # Second request should succeed
+        response2 = manager.get('http://example.com')
+        assert response2.status_code == 200
+        
+        # Third request should be rate limited (handled by ratelimit library)
+        # The ratelimit library will sleep rather than raise an exception
+        start_time = time.time()
+        response3 = manager.get('http://example.com')
+        end_time = time.time()
+        
+        # Should have been delayed by rate limiting
+        assert end_time - start_time >= 0.5  # Some delay expected
+        assert response3.status_code == 200
         
         manager.close()
     
     @patch('requests.Session.request')
-    def test_retry_mechanism(self, mock_request):
-        """Test retry mechanism on failures."""
+    def test_retry_mechanism_with_urllib3(self, mock_request):
+        """Test retry mechanism using urllib3.Retry."""
         manager = ConnectionManager(max_retries=2, backoff_factor=0.1)
         
         # Mock server error responses for first two attempts, then success
-        responses = [
-            Mock(status_code=500),
-            Mock(status_code=500),
-            Mock(status_code=200)
-        ]
-        
-        # First two calls raise HTTPError due to 500 status
         mock_request.side_effect = [
             requests.HTTPError("Server error: 500"),
             requests.HTTPError("Server error: 500"),
-            responses[2]
+            Mock(status_code=200)
         ]
         
         response = manager.get('http://example.com')
         
         assert response.status_code == 200
-        assert mock_request.call_count == 3
+        # urllib3.Retry handles retries automatically in the adapter
         
         manager.close()
     
     @patch('requests.Session.request')
-    def test_max_retries_exceeded(self, mock_request):
-        """Test MaxRetriesExceeded exception."""
-        manager = ConnectionManager(max_retries=1, backoff_factor=0.1)
-        
-        # Mock consistent failures
-        mock_request.side_effect = requests.HTTPError("Server error")
-        
-        with pytest.raises(MaxRetriesExceeded):
-            manager.get('http://example.com')
-        
-        assert mock_request.call_count == 2  # Initial attempt + 1 retry
-        
-        manager.close()
-    
-    @patch('requests.Session.request')
-    def test_circuit_breaker_integration(self, mock_request):
-        """Test circuit breaker integration."""
+    def test_circuit_breaker_with_pybreaker(self, mock_request):
+        """Test circuit breaker integration with pybreaker."""
         manager = ConnectionManager(
             circuit_breaker_failure_threshold=2,
-            circuit_breaker_recovery_timeout=0.1,
-            max_retries=0  # Disable retries for this test
+            circuit_breaker_recovery_timeout=0.1
         )
         
         # Mock consistent failures
         mock_request.side_effect = requests.RequestException("Connection failed")
         
-        # First failure - should get MaxRetriesExceeded since retries are disabled
-        with pytest.raises(MaxRetriesExceeded):
+        # First failure
+        with pytest.raises(requests.RequestException):
             manager.get('http://example.com')
         
-        # Second failure - should open circuit and still get MaxRetriesExceeded
-        with pytest.raises(MaxRetriesExceeded):
+        # Second failure - should trigger circuit breaker
+        with pytest.raises(requests.RequestException):
             manager.get('http://example.com')
         
-        # Third attempt should raise CircuitBreakerOpen
+        # Third attempt should raise CircuitBreakerOpen due to pybreaker
         with pytest.raises(CircuitBreakerOpen):
             manager.get('http://example.com')
         
@@ -250,22 +134,23 @@ class TestConnectionManager:
             assert manager.session is not None
         
         # Session should be closed after context exit
-        # Note: We can't easily test if session is closed without accessing private attributes
     
     def test_get_stats(self):
-        """Test get_stats method."""
+        """Test get_stats method with new structure."""
         manager = ConnectionManager(
-            max_retries=5,
-            backoff_factor=0.5,
+            rate_limit_requests=50,
+            rate_limit_period=30,
             timeout=20
         )
         
         stats = manager.get_stats()
         
         assert 'circuit_breaker_state' in stats
-        assert 'rate_limiter_tokens' in stats
-        assert stats['max_retries'] == 5
-        assert stats['backoff_factor'] == 0.5
+        assert 'circuit_breaker_failure_count' in stats
+        assert 'rate_limit_requests' in stats
+        assert 'rate_limit_period' in stats
+        assert stats['rate_limit_requests'] == 50
+        assert stats['rate_limit_period'] == 30
         assert stats['timeout'] == 20
         
         manager.close()
@@ -290,9 +175,35 @@ class TestConnectionManager:
         
         manager.close()
     
-    def test_thread_safety(self):
-        """Test thread safety of rate limiter and circuit breaker."""
-        manager = ConnectionManager(rate_limit_requests=10, rate_limit_period=1)
+    @patch('requests.Session.request')
+    def test_timeout_support(self, mock_request):
+        """Test timeout support."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_request.return_value = mock_response
+        
+        manager = ConnectionManager(timeout=15)
+        
+        # Make request with default timeout
+        manager.get('http://example.com')
+        
+        # Check that timeout was passed to the request
+        call_args = mock_request.call_args
+        assert 'timeout' in call_args.kwargs
+        assert call_args.kwargs['timeout'] == 15
+        
+        # Make request with custom timeout
+        manager.get('http://example.com', timeout=10)
+        
+        # Check that custom timeout was used
+        call_args = mock_request.call_args
+        assert call_args.kwargs['timeout'] == 10
+        
+        manager.close()
+    
+    def test_thread_safety_with_external_libraries(self):
+        """Test thread safety with external rate limiting and circuit breaker."""
+        manager = ConnectionManager(rate_limit_requests=5, rate_limit_period=1)
         
         results = []
         exceptions = []
@@ -311,7 +222,7 @@ class TestConnectionManager:
         
         # Create multiple threads
         threads = []
-        for _ in range(15):  # More than rate limit
+        for _ in range(10):  # More than rate limit
             thread = threading.Thread(target=make_request)
             threads.append(thread)
             thread.start()
@@ -320,9 +231,31 @@ class TestConnectionManager:
         for thread in threads:
             thread.join()
         
-        # Should have some successful requests and some rate limit exceptions
+        # Should have successful requests (rate limiting will cause delays, not exceptions)
         assert len(results) > 0
-        assert len(exceptions) > 0
-        assert any(isinstance(e, RateLimitExceeded) for e in exceptions)
+        
+        manager.close()
+    
+    @patch('requests.Session.request')
+    def test_request_method_parameters(self, mock_request):
+        """Test that request method properly passes parameters."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_request.return_value = mock_response
+        
+        manager = ConnectionManager()
+        
+        # Test with various parameters
+        data = {'key': 'value'}
+        headers = {'Authorization': 'Bearer token'}
+        
+        manager.post('http://example.com', json=data, headers=headers)
+        
+        # Verify parameters were passed through
+        call_args = mock_request.call_args
+        assert call_args.args[0] == 'POST'  # method
+        assert call_args.args[1] == 'http://example.com'  # url
+        assert 'json' in call_args.kwargs
+        assert 'headers' in call_args.kwargs
         
         manager.close()

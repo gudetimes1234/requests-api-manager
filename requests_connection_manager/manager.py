@@ -4,13 +4,13 @@ rate limiting, and circuit breaker functionality for HTTP requests.
 """
 
 import time
-import threading
 import logging
-from typing import Optional, Dict, Any, Union, Callable, Tuple, Type
-from urllib3 import PoolManager
+from typing import Optional, Dict, Any
 from urllib3.util.retry import Retry
 import requests
 from requests.adapters import HTTPAdapter
+from ratelimit import limits, sleep_and_retry
+import pybreaker
 
 from .exceptions import (
     ConnectionManagerError,
@@ -23,116 +23,7 @@ from .exceptions import (
 logger = logging.getLogger(__name__)
 
 
-class TokenBucket:
-    """Token bucket implementation for rate limiting."""
-    
-    def __init__(self, capacity: int, refill_rate: float):
-        """
-        Initialize token bucket.
-        
-        Args:
-            capacity: Maximum number of tokens in the bucket
-            refill_rate: Rate at which tokens are added (tokens per second)
-        """
-        self.capacity = capacity
-        self.tokens = capacity
-        self.refill_rate = refill_rate
-        self.last_refill = time.time()
-        self.lock = threading.Lock()
-    
-    def consume(self, tokens: int = 1) -> bool:
-        """
-        Try to consume tokens from the bucket.
-        
-        Args:
-            tokens: Number of tokens to consume
-            
-        Returns:
-            True if tokens were consumed, False otherwise
-        """
-        with self.lock:
-            now = time.time()
-            # Add tokens based on elapsed time
-            elapsed = now - self.last_refill
-            self.tokens = min(self.capacity, self.tokens + elapsed * self.refill_rate)
-            self.last_refill = now
-            
-            if self.tokens >= tokens:
-                self.tokens -= tokens
-                return True
-            return False
 
-
-class CircuitBreaker:
-    """Circuit breaker implementation to handle service failures."""
-    
-    def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 60, expected_exception: Union[Type[Exception], Tuple[Type[Exception], ...]] = Exception):
-        """
-        Initialize circuit breaker.
-        
-        Args:
-            failure_threshold: Number of failures before opening circuit
-            recovery_timeout: Time to wait before trying to close circuit
-            expected_exception: Exception type that triggers circuit breaker
-        """
-        self.failure_threshold = failure_threshold
-        self.recovery_timeout = recovery_timeout
-        self.expected_exception = expected_exception
-        
-        self.failure_count = 0
-        self.last_failure_time = None
-        self.state = 'CLOSED'  # CLOSED, OPEN, HALF_OPEN
-        self.lock = threading.Lock()
-    
-    def call(self, func: Callable, *args, **kwargs):
-        """
-        Execute function with circuit breaker protection.
-        
-        Args:
-            func: Function to execute
-            *args: Function arguments
-            **kwargs: Function keyword arguments
-            
-        Returns:
-            Function result
-            
-        Raises:
-            CircuitBreakerOpen: When circuit is open
-        """
-        with self.lock:
-            if self.state == 'OPEN':
-                if self.last_failure_time and time.time() - self.last_failure_time >= self.recovery_timeout:
-                    self.state = 'HALF_OPEN'
-                    logger.info("Circuit breaker moving to HALF_OPEN state")
-                else:
-                    raise CircuitBreakerOpen("Circuit breaker is OPEN")
-        
-        try:
-            result = func(*args, **kwargs)
-            self._on_success()
-            return result
-        except Exception as e:
-            if isinstance(e, self.expected_exception):
-                self._on_failure()
-            raise e
-    
-    def _on_success(self):
-        """Handle successful call."""
-        with self.lock:
-            self.failure_count = 0
-            if self.state == 'HALF_OPEN':
-                self.state = 'CLOSED'
-                logger.info("Circuit breaker CLOSED")
-    
-    def _on_failure(self):
-        """Handle failed call."""
-        with self.lock:
-            self.failure_count += 1
-            self.last_failure_time = time.time()
-            
-            if self.failure_count >= self.failure_threshold:
-                self.state = 'OPEN'
-                logger.warning(f"Circuit breaker OPEN after {self.failure_count} failures")
 
 
 class ConnectionManager:
@@ -166,14 +57,14 @@ class ConnectionManager:
             circuit_breaker_recovery_timeout: Recovery timeout for circuit breaker
             timeout: Default request timeout
         """
-        self.max_retries = max_retries
-        self.backoff_factor = backoff_factor
         self.timeout = timeout
+        self.rate_limit_requests = rate_limit_requests
+        self.rate_limit_period = rate_limit_period
         
-        # Set up connection pooling
+        # Set up connection pooling with requests.Session
         self.session = requests.Session()
         
-        # Configure retry strategy
+        # Configure retry strategy using urllib3.Retry
         retry_strategy = Retry(
             total=max_retries,
             backoff_factor=backoff_factor,
@@ -190,29 +81,20 @@ class ConnectionManager:
         self.session.mount("http://", adapter)
         self.session.mount("https://", adapter)
         
-        # Set up rate limiting
-        self.rate_limiter = TokenBucket(
-            capacity=rate_limit_requests,
-            refill_rate=rate_limit_requests / rate_limit_period
-        )
-        
-        # Set up circuit breaker
-        self.circuit_breaker = CircuitBreaker(
-            failure_threshold=circuit_breaker_failure_threshold,
-            recovery_timeout=circuit_breaker_recovery_timeout,
-            expected_exception=(requests.RequestException, ConnectionManagerError)
+        # Set up circuit breaker using pybreaker
+        self.circuit_breaker = pybreaker.CircuitBreaker(
+            fail_max=circuit_breaker_failure_threshold,
+            reset_timeout=circuit_breaker_recovery_timeout,
+            exclude=[RateLimitExceeded]  # Don't count rate limit as circuit breaker failure
         )
         
         logger.info("ConnectionManager initialized with pooling, retries, rate limiting, and circuit breaker")
     
-    def _check_rate_limit(self):
-        """Check if request is within rate limit."""
-        if not self.rate_limiter.consume():
-            raise RateLimitExceeded("Rate limit exceeded")
-    
-    def _make_request_with_retries(self, method: str, url: str, **kwargs) -> requests.Response:
+    @sleep_and_retry
+    @limits(calls=100, period=60)  # Default rate limit - will be overridden by instance method
+    def _rate_limited_request(self, method: str, url: str, **kwargs) -> requests.Response:
         """
-        Make HTTP request with retry logic.
+        Make HTTP request with rate limiting using ratelimit decorator.
         
         Args:
             method: HTTP method
@@ -221,40 +103,18 @@ class ConnectionManager:
             
         Returns:
             Response object
-            
-        Raises:
-            MaxRetriesExceeded: When all retry attempts fail
         """
-        last_exception = None
-        
-        for attempt in range(self.max_retries + 1):
-            try:
-                response = self.session.request(
-                    method=method,
-                    url=url,
-                    timeout=kwargs.pop('timeout', self.timeout),
-                    **kwargs
-                )
-                
-                # Check if response indicates a server error that should be retried
-                if response.status_code >= 500:
-                    raise requests.HTTPError(f"Server error: {response.status_code}")
-                
-                return response
-                
-            except (requests.RequestException, requests.HTTPError) as e:
-                last_exception = e
-                
-                if attempt < self.max_retries:
-                    # Calculate backoff delay
-                    delay = self.backoff_factor * (2 ** attempt)
-                    logger.warning(f"Request failed (attempt {attempt + 1}/{self.max_retries + 1}), "
-                                 f"retrying in {delay:.2f} seconds: {str(e)}")
-                    time.sleep(delay)
-                else:
-                    logger.error(f"All retry attempts failed for {method} {url}")
-        
-        raise MaxRetriesExceeded(f"Maximum retries exceeded. Last error: {str(last_exception)}")
+        try:
+            response = self.session.request(
+                method=method,
+                url=url,
+                timeout=kwargs.pop('timeout', self.timeout),
+                **kwargs
+            )
+            return response
+        except Exception as e:
+            logger.error(f"Request failed: {method} {url} - {str(e)}")
+            raise
     
     def request(self, method: str, url: str, **kwargs) -> requests.Response:
         """
@@ -271,24 +131,25 @@ class ConnectionManager:
         Raises:
             RateLimitExceeded: When rate limit is exceeded
             CircuitBreakerOpen: When circuit breaker is open
-            MaxRetriesExceeded: When all retries fail
             ConnectionManagerError: For other connection manager errors
         """
         try:
-            # Check rate limit
-            self._check_rate_limit()
-            
-            # Make request through circuit breaker
-            response = self.circuit_breaker.call(
-                self._make_request_with_retries,
-                method,
-                url,
-                **kwargs
+            # Apply dynamic rate limiting by creating a new decorator with instance values
+            rate_limited_func = sleep_and_retry(
+                limits(calls=self.rate_limit_requests, period=self.rate_limit_period)(
+                    self._rate_limited_request
+                )
             )
+            
+            # Make request through circuit breaker and rate limiter
+            response = self.circuit_breaker(rate_limited_func)(method, url, **kwargs)
             
             logger.debug(f"Successful {method} request to {url}")
             return response
             
+        except pybreaker.CircuitBreakerError:
+            logger.error(f"Circuit breaker is open for {method} {url}")
+            raise CircuitBreakerOpen("Circuit breaker is open")
         except Exception as e:
             logger.error(f"Request failed: {method} {url} - {str(e)}")
             raise
@@ -343,11 +204,9 @@ class ConnectionManager:
             Dictionary with current stats
         """
         return {
-            'circuit_breaker_state': self.circuit_breaker.state,
-            'circuit_breaker_failure_count': self.circuit_breaker.failure_count,
-            'rate_limiter_tokens': self.rate_limiter.tokens,
-            'rate_limiter_capacity': self.rate_limiter.capacity,
-            'max_retries': self.max_retries,
-            'backoff_factor': self.backoff_factor,
+            'circuit_breaker_state': self.circuit_breaker.current_state,
+            'circuit_breaker_failure_count': self.circuit_breaker.fail_counter,
+            'rate_limit_requests': self.rate_limit_requests,
+            'rate_limit_period': self.rate_limit_period,
             'timeout': self.timeout
         }

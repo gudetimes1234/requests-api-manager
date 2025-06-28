@@ -29,6 +29,8 @@ Requires-Dist: pytest-cov>=4.0.0
 Requires-Dist: pytest>=7.0.0
 Requires-Dist: requests>=2.25.0
 Requires-Dist: urllib3>=1.26.0
+Requires-Dist: ratelimit>=2.2.1
+Requires-Dist: pybreaker>=1.2.0
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0.0; extra == "dev"
 Requires-Dist: pytest-cov>=4.0.0; extra == "dev"

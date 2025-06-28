@@ -41,6 +41,8 @@ dependencies = [
     "pytest>=7.0.0",
     "requests>=2.25.0",
     "urllib3>=1.26.0",
+    "ratelimit>=2.2.1",
+    "pybreaker>=1.2.0",
 ]
 
 [project.optional-dependencies]

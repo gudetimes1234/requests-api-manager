@@ -1,3 +1,4 @@
+
 """
 ConnectionManager - Main class that provides connection pooling, retries,
 rate limiting, and circuit breaker functionality for HTTP requests.
@@ -5,7 +6,7 @@ rate limiting, and circuit breaker functionality for HTTP requests.
 
 import time
 import logging
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable
 from urllib3.util.retry import Retry
 import requests
 from requests.adapters import HTTPAdapter
@@ -21,9 +22,6 @@ from .exceptions import (
 
 # Set up logging
 logger = logging.getLogger(__name__)
-
-
-
 
 
 class ConnectionManager:
@@ -69,13 +67,20 @@ class ConnectionManager:
             total=max_retries,
             backoff_factor=backoff_factor,
             status_forcelist=[429, 500, 502, 503, 504],
+            # Add read retries for connection issues
+            read=max_retries,
+            connect=max_retries,
+            # Reduce redirect retries to improve performance
+            redirect=2
         )
         
-        # Create HTTP adapter with connection pooling
+        # Create HTTP adapter with connection pooling and optimized settings
         adapter = HTTPAdapter(
             pool_connections=pool_connections,
             pool_maxsize=pool_maxsize,
-            max_retries=retry_strategy
+            max_retries=retry_strategy,
+            # Enable connection pooling optimizations
+            pool_block=False  # Don't block when pool is full
         )
         
         self.session.mount("http://", adapter)
@@ -88,11 +93,19 @@ class ConnectionManager:
             exclude=[RateLimitExceeded]  # Don't count rate limit as circuit breaker failure
         )
         
+        # Pre-configure rate limited function to avoid dynamic creation
+        @sleep_and_retry
+        @limits(calls=rate_limit_requests, period=rate_limit_period)
+        def _rate_limited_wrapper(func: Callable, *args, **kwargs):
+            return func(*args, **kwargs)
+        
+        self._rate_limited_wrapper = _rate_limited_wrapper
+        
         logger.info("ConnectionManager initialized with pooling, retries, rate limiting, and circuit breaker")
     
-    def _rate_limited_request(self, method: str, url: str, **kwargs) -> requests.Response:
+    def _make_request(self, method: str, url: str, **kwargs) -> requests.Response:
         """
-        Make HTTP request with rate limiting using ratelimit decorator.
+        Internal method to make HTTP request with optimized parameter handling.
         
         Args:
             method: HTTP method
@@ -102,13 +115,13 @@ class ConnectionManager:
         Returns:
             Response object
         """
+        # Handle timeout efficiently without modifying kwargs
+        request_timeout = kwargs.get('timeout', self.timeout)
+        if 'timeout' not in kwargs:
+            kwargs['timeout'] = request_timeout
+        
         try:
-            response = self.session.request(
-                method=method,
-                url=url,
-                timeout=kwargs.pop('timeout', self.timeout),
-                **kwargs
-            )
+            response = self.session.request(method=method, url=url, **kwargs)
             return response
         except Exception as e:
             logger.error(f"Request failed: {method} {url} - {str(e)}")
@@ -132,14 +145,13 @@ class ConnectionManager:
             ConnectionManagerError: For other connection manager errors
         """
         try:
-            # Create rate limited function with instance-specific limits
-            @sleep_and_retry
-            @limits(calls=self.rate_limit_requests, period=self.rate_limit_period)
-            def rate_limited_request():
-                return self._rate_limited_request(method, url, **kwargs)
-            
-            # Make request through circuit breaker and rate limiter
-            response = self.circuit_breaker(rate_limited_request)()
+            # Use pre-configured rate limiter with circuit breaker
+            response = self._rate_limited_wrapper(
+                self.circuit_breaker(self._make_request),
+                method,
+                url,
+                **kwargs
+            )
             
             logger.debug(f"Successful {method} request to {url}")
             return response

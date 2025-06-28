@@ -5,13 +5,188 @@ A Python package that extends the popular `requests` library with advanced conne
 ## Features
 
 - **Connection Pooling**: Efficient connection reuse with configurable pool sizes
-- **Automatic Retries**: Intelligent retry mechanism with exponential backoff
-- **Rate Limiting**: Token bucket-based rate limiting to prevent API abuse
+- **Automatic Retries**: Smart retry logic with exponential backoff for failed requests
+- **Rate Limiting**: Built-in request throttling to prevent API abuse
 - **Circuit Breaker**: Fail-fast pattern to handle service failures gracefully
-- **Thread-Safe**: All components are designed for concurrent usage
-- **Easy Integration**: Drop-in enhancement for existing `requests` code
+- **Thread Safety**: Safe for use in multi-threaded applications
+- **Drop-in Replacement**: Compatible with existing `requests` code
 
 ## Installation
 
 ```bash
 pip install requests-connection-manager
+```
+
+## Quick Start
+
+```python
+from requests_connection_manager import ConnectionManager
+
+# Create a connection manager with default settings
+manager = ConnectionManager()
+
+# Make requests just like with the requests library
+response = manager.get('https://api.example.com/data')
+print(response.json())
+
+# Use as a context manager for automatic cleanup
+with ConnectionManager() as manager:
+    response = manager.get('https://httpbin.org/get')
+    print(f"Status: {response.status_code}")
+```
+
+## Configuration
+
+Customize the connection manager with various options:
+
+```python
+manager = ConnectionManager(
+    pool_connections=20,          # Number of connection pools
+    pool_maxsize=20,             # Max connections per pool
+    max_retries=5,               # Retry attempts
+    backoff_factor=0.5,          # Retry delay multiplier
+    rate_limit_requests=100,     # Requests per period
+    rate_limit_period=60,        # Rate limit period (seconds)
+    circuit_breaker_failure_threshold=10,  # Failures before opening circuit
+    circuit_breaker_recovery_timeout=30,   # Recovery timeout (seconds)
+    timeout=30                   # Default request timeout
+)
+```
+
+## Usage Examples
+
+### Basic HTTP Methods
+
+```python
+from requests_connection_manager import ConnectionManager
+
+manager = ConnectionManager()
+
+# GET request
+response = manager.get('https://httpbin.org/get')
+
+# POST request with JSON data
+data = {'key': 'value'}
+response = manager.post('https://httpbin.org/post', json=data)
+
+# Custom headers
+headers = {'Authorization': 'Bearer token'}
+response = manager.get('https://api.example.com/protected', headers=headers)
+
+manager.close()
+```
+
+### Advanced Features
+
+```python
+# Rate limiting automatically prevents excessive requests
+manager = ConnectionManager(rate_limit_requests=10, rate_limit_period=60)
+
+# Circuit breaker protects against failing services
+manager = ConnectionManager(
+    circuit_breaker_failure_threshold=5,
+    circuit_breaker_recovery_timeout=60
+)
+
+# Automatic retries with exponential backoff
+manager = ConnectionManager(max_retries=3, backoff_factor=0.3)
+```
+
+### Error Handling
+
+```python
+from requests_connection_manager import ConnectionManager
+from requests_connection_manager.exceptions import (
+    RateLimitExceeded,
+    CircuitBreakerOpen,
+    MaxRetriesExceeded
+)
+
+manager = ConnectionManager()
+
+try:
+    response = manager.get('https://api.example.com/data')
+except RateLimitExceeded:
+    print("Rate limit exceeded, please wait")
+except CircuitBreakerOpen:
+    print("Service is currently unavailable")
+except MaxRetriesExceeded:
+    print("Request failed after maximum retries")
+```
+
+### Thread Safety
+
+```python
+import threading
+from requests_connection_manager import ConnectionManager
+
+# Safe to use across multiple threads
+manager = ConnectionManager()
+
+def make_request(url):
+    response = manager.get(url)
+    return response.status_code
+
+# Create multiple threads
+threads = []
+for i in range(10):
+    thread = threading.Thread(target=make_request, args=(f'https://httpbin.org/get?id={i}',))
+    threads.append(thread)
+    thread.start()
+
+# Wait for all threads to complete
+for thread in threads:
+    thread.join()
+
+manager.close()
+```
+
+## API Reference
+
+### ConnectionManager
+
+The main class that provides enhanced HTTP functionality.
+
+#### Methods
+
+- `get(url, **kwargs)` - Make GET request
+- `post(url, **kwargs)` - Make POST request  
+- `put(url, **kwargs)` - Make PUT request
+- `delete(url, **kwargs)` - Make DELETE request
+- `patch(url, **kwargs)` - Make PATCH request
+- `head(url, **kwargs)` - Make HEAD request
+- `options(url, **kwargs)` - Make OPTIONS request
+- `request(method, url, **kwargs)` - Make request with specified method
+- `close()` - Close session and clean up resources
+- `get_stats()` - Get current connection statistics
+
+#### Configuration Parameters
+
+- `pool_connections` (int): Number of connection pools to cache (default: 10)
+- `pool_maxsize` (int): Maximum number of connections in each pool (default: 10)
+- `max_retries` (int): Maximum number of retry attempts (default: 3)
+- `backoff_factor` (float): Backoff factor for retries (default: 0.3)
+- `rate_limit_requests` (int): Number of requests allowed per period (default: 100)
+- `rate_limit_period` (int): Time period for rate limiting in seconds (default: 60)
+- `circuit_breaker_failure_threshold` (int): Failures before opening circuit (default: 5)
+- `circuit_breaker_recovery_timeout` (float): Recovery timeout for circuit breaker (default: 60)
+- `timeout` (int): Default request timeout in seconds (default: 30)
+
+## Dependencies
+
+- `requests` >= 2.25.0
+- `urllib3` >= 1.26.0
+- `ratelimit` >= 2.2.1
+- `pybreaker` >= 1.2.0
+
+## License
+
+MIT License
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Changelog
+
+See the [GitHub releases](https://github.com/charlesgude/requests-connection-manager/releases) for version history and changes.

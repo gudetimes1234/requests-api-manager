@@ -80,8 +80,8 @@ The system follows a modular architecture with clear separation of concerns:
 - **Installation**: `pip install requests-connection-manager`
 
 ### Development Setup
-- Uses `pyproject.toml` for modern Python packaging
-- Supports development, test, and production dependency groups
+- Uses Poetry format `pyproject.toml` for modern Python packaging
+- Supports development dependency groups via `tool.poetry.group.dev.dependencies`
 - Includes comprehensive test suite with coverage reporting
 
 ### Version Management
@@ -92,6 +92,9 @@ The system follows a modular architecture with clear separation of concerns:
 
 - June 28, 2025: Initial setup with custom implementations
 - June 28, 2025: Refactored to use external libraries (ratelimit, pybreaker) instead of custom TokenBucket and CircuitBreaker implementations
+- June 28, 2025: Added integration test with httpbin.org endpoint to verify real HTTP request functionality
+- June 28, 2025: Converted pyproject.toml to Poetry format with Charles Gude as author and MIT license
+- June 28, 2025: Created comprehensive README.md with installation instructions, usage examples, and complete API documentation
 
 ## User Preferences
 

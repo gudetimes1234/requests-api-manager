@@ -252,3 +252,23 @@ class TestConnectionManager:
         assert call_args.kwargs['headers'] == headers
         
         manager.close()
+    
+    def test_real_http_request(self):
+        """Test real HTTP request to httpbin.org using ConnectionManager."""
+        manager = ConnectionManager()
+        
+        try:
+            # Make actual GET request to httpbin.org
+            response = manager.get('https://httpbin.org/get')
+            
+            # Verify successful response
+            assert response.status_code == 200
+            
+            # Verify response contains expected data structure
+            data = response.json()
+            assert 'url' in data
+            assert 'headers' in data
+            assert data['url'] == 'https://httpbin.org/get'
+            
+        finally:
+            manager.close()

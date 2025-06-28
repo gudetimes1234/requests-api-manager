@@ -1,0 +1,36 @@
+modules = ["python-3.11"]
+
+[nix]
+channel = "stable-24_05"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Test Runner"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "test_package"
+
+[[workflows.workflow]]
+name = "Test Runner"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pip install -e . && pip install pytest pytest-cov && python -m pytest tests/ -v"
+
+[[workflows.workflow]]
+name = "test_package"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pip install -e . && pip install pytest && python -m pytest tests/ -v"

@@ -1,0 +1,97 @@
+# requests-connection-manager
+
+## Overview
+
+This is a Python package that extends the popular `requests` library with advanced connection management features. The package provides a `ConnectionManager` class that wraps HTTP requests with connection pooling, automatic retries, rate limiting, and circuit breaker functionality. It's designed as a drop-in enhancement for existing `requests` code with thread-safe operations.
+
+## System Architecture
+
+The system follows a modular architecture with clear separation of concerns:
+
+**Core Components:**
+- `ConnectionManager`: Main orchestrator class that coordinates all connection management features
+- `TokenBucket`: Rate limiting implementation using token bucket algorithm
+- `CircuitBreaker`: Fail-fast pattern implementation for handling service failures
+- Custom exception hierarchy for specific error handling
+
+**Architecture Pattern:**
+- Decorator/Wrapper pattern: Enhances existing `requests` functionality without modifying core behavior
+- Strategy pattern: Configurable retry, rate limiting, and circuit breaker strategies
+- Observer pattern: Built-in logging and monitoring capabilities
+
+## Key Components
+
+### 1. Connection Manager (`manager.py`)
+- **Purpose**: Central coordinator for all connection management features
+- **Key Features**:
+  - Integration with `urllib3.PoolManager` for connection pooling
+  - Wraps `requests.Session` with enhanced capabilities
+  - Thread-safe operation using locks
+  - Configurable retry strategies via `urllib3.util.retry.Retry`
+
+### 2. Rate Limiting (`TokenBucket`)
+- **Algorithm**: Token bucket implementation
+- **Features**:
+  - Configurable capacity and refill rate
+  - Thread-safe token consumption
+  - Automatic token refill based on time elapsed
+  - Prevents API abuse through request throttling
+
+### 3. Circuit Breaker Pattern
+- **Purpose**: Fail-fast mechanism for handling service failures
+- **States**: Closed, Open, Half-Open
+- **Benefits**: Prevents cascading failures and provides graceful degradation
+
+### 4. Exception Hierarchy (`exceptions.py`)
+- **Base**: `ConnectionManagerError` for all package-specific errors
+- **Specific Exceptions**:
+  - `RateLimitExceeded`: When rate limits are hit
+  - `CircuitBreakerOpen`: When circuit breaker prevents requests
+  - `MaxRetriesExceeded`: When retry attempts are exhausted
+
+## Data Flow
+
+1. **Request Initiation**: Client code calls ConnectionManager methods
+2. **Rate Limiting Check**: TokenBucket validates if request can proceed
+3. **Circuit Breaker Check**: Verifies if service is available
+4. **Connection Pool**: PoolManager manages HTTP connections
+5. **Retry Logic**: Automatic retries with exponential backoff on failures
+6. **Response Handling**: Success/failure updates circuit breaker state
+
+## External Dependencies
+
+### Core Dependencies
+- **requests** (>=2.25.0): HTTP library foundation
+- **urllib3** (>=1.26.0): Low-level HTTP connection management and pooling
+
+### Development Dependencies
+- **pytest** (>=7.0.0): Testing framework
+- **pytest-cov** (>=4.0.0): Code coverage reporting
+- **black** (>=22.0.0): Code formatting
+- **flake8** (>=5.0.0): Linting
+- **mypy** (>=1.0.0): Type checking
+- **isort** (>=5.10.0): Import sorting
+
+## Deployment Strategy
+
+### Package Distribution
+- **Format**: Python wheel and source distribution
+- **Registry**: PyPI (Python Package Index)
+- **Installation**: `pip install requests-connection-manager`
+
+### Development Setup
+- Uses `pyproject.toml` for modern Python packaging
+- Supports development, test, and production dependency groups
+- Includes comprehensive test suite with coverage reporting
+
+### Version Management
+- Semantic versioning (currently v1.0.0)
+- Version defined in `__init__.py` for single source of truth
+
+## Changelog
+
+- June 28, 2025. Initial setup
+
+## User Preferences
+
+Preferred communication style: Simple, everyday language.

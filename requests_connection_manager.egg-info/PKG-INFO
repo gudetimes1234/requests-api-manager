@@ -1,0 +1,59 @@
+Metadata-Version: 2.4
+Name: requests-connection-manager
+Version: 1.0.0
+Summary: A Python package that extends requests with connection pooling, retries, rate limiting, and circuit breaker functionality
+Author-email: requests-connection-manager <contact@requests-connection-manager.com>
+License: MIT
+Project-URL: Homepage, https://github.com/your-username/requests-connection-manager
+Project-URL: Documentation, https://github.com/your-username/requests-connection-manager#readme
+Project-URL: Repository, https://github.com/your-username/requests-connection-manager.git
+Project-URL: Bug Tracker, https://github.com/your-username/requests-connection-manager/issues
+Project-URL: Changelog, https://github.com/your-username/requests-connection-manager/blob/main/CHANGELOG.md
+Keywords: requests,http,connection-pooling,retry,rate-limiting,circuit-breaker,resilience
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Intended Audience :: Developers
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Programming Language :: Python :: 3.12
+Classifier: Topic :: Internet :: WWW/HTTP
+Classifier: Topic :: Software Development :: Libraries :: Python Modules
+Classifier: Topic :: System :: Networking
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: pytest-cov>=4.0.0
+Requires-Dist: pytest>=7.0.0
+Requires-Dist: requests>=2.25.0
+Requires-Dist: urllib3>=1.26.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.0.0; extra == "dev"
+Requires-Dist: black>=22.0.0; extra == "dev"
+Requires-Dist: flake8>=5.0.0; extra == "dev"
+Requires-Dist: mypy>=1.0.0; extra == "dev"
+Requires-Dist: isort>=5.10.0; extra == "dev"
+Provides-Extra: test
+Requires-Dist: pytest>=7.0.0; extra == "test"
+Requires-Dist: pytest-cov>=4.0.0; extra == "test"
+
+# requests-connection-manager
+
+A Python package that extends the popular `requests` library with advanced connection management features including connection pooling, automatic retries, rate limiting, and circuit breaker functionality.
+
+## Features
+
+- **Connection Pooling**: Efficient connection reuse with configurable pool sizes
+- **Automatic Retries**: Intelligent retry mechanism with exponential backoff
+- **Rate Limiting**: Token bucket-based rate limiting to prevent API abuse
+- **Circuit Breaker**: Fail-fast pattern to handle service failures gracefully
+- **Thread-Safe**: All components are designed for concurrent usage
+- **Easy Integration**: Drop-in enhancement for existing `requests` code
+
+## Installation
+
+```bash
+pip install requests-connection-manager

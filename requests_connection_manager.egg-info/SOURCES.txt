@@ -1,0 +1,11 @@
+README.md
+pyproject.toml
+requests_connection_manager/__init__.py
+requests_connection_manager/exceptions.py
+requests_connection_manager/manager.py
+requests_connection_manager.egg-info/PKG-INFO
+requests_connection_manager.egg-info/SOURCES.txt
+requests_connection_manager.egg-info/dependency_links.txt
+requests_connection_manager.egg-info/requires.txt
+requests_connection_manager.egg-info/top_level.txt
+tests/test_manager.py

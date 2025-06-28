@@ -19,6 +19,7 @@ from .exceptions import (
     CircuitBreakerOpen,
     MaxRetriesExceeded
 )
+from .plugins import PluginManager, RequestContext, ResponseContext, ErrorContext, HookType
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -101,7 +102,10 @@ class ConnectionManager:
         
         self._rate_limited_wrapper = _rate_limited_wrapper
         
-        logger.info("ConnectionManager initialized with pooling, retries, rate limiting, and circuit breaker")
+        # Initialize plugin manager
+        self.plugin_manager = PluginManager()
+        
+        logger.info("ConnectionManager initialized with pooling, retries, rate limiting, circuit breaker, and plugin system")
     
     def _make_request(self, method: str, url: str, **kwargs) -> requests.Response:
         """
@@ -129,7 +133,7 @@ class ConnectionManager:
     
     def request(self, method: str, url: str, **kwargs) -> requests.Response:
         """
-        Make HTTP request with all enhancements (pooling, retries, rate limiting, circuit breaker).
+        Make HTTP request with all enhancements (pooling, retries, rate limiting, circuit breaker, plugins).
         
         Args:
             method: HTTP method (GET, POST, etc.)
@@ -144,6 +148,15 @@ class ConnectionManager:
             CircuitBreakerOpen: When circuit breaker is open
             ConnectionManagerError: For other connection manager errors
         """
+        # Create request context and execute pre-request hooks
+        request_context = RequestContext(method, url, **kwargs)
+        self.plugin_manager.execute_pre_request_hooks(request_context)
+        
+        # Update method, url, and kwargs from context (may have been modified by hooks)
+        method = request_context.method
+        url = request_context.url
+        kwargs = request_context.kwargs
+        
         try:
             # Use pre-configured rate limiter with circuit breaker
             response = self._rate_limited_wrapper(
@@ -153,15 +166,32 @@ class ConnectionManager:
                 **kwargs
             )
             
+            # Execute post-response hooks
+            response_context = ResponseContext(response, request_context)
+            self.plugin_manager.execute_post_response_hooks(response_context)
+            
             logger.debug(f"Successful {method} request to {url}")
-            return response
+            return response_context.response
             
         except pybreaker.CircuitBreakerError:
             logger.error(f"Circuit breaker is open for {method} {url}")
-            raise CircuitBreakerOpen("Circuit breaker is open")
+            error = CircuitBreakerOpen("Circuit breaker is open")
+            return self._handle_error(error, request_context)
         except Exception as e:
             logger.error(f"Request failed: {method} {url} - {str(e)}")
-            raise
+            return self._handle_error(e, request_context)
+    
+    def _handle_error(self, exception: Exception, request_context: RequestContext):
+        """Handle errors through the plugin system."""
+        error_context = ErrorContext(exception, request_context)
+        self.plugin_manager.execute_error_hooks(error_context)
+        
+        if error_context.handled and error_context.fallback_response:
+            logger.info(f"Error handled by plugin, returning fallback response")
+            return error_context.fallback_response
+        
+        # Re-raise the original exception if not handled
+        raise exception
     
     def get(self, url: str, **kwargs) -> requests.Response:
         """Make GET request."""
@@ -205,6 +235,47 @@ class ConnectionManager:
         """Context manager exit."""
         self.close()
     
+    def register_pre_request_hook(self, hook_func: Callable[[RequestContext], None]):
+        """
+        Register a pre-request hook.
+        
+        Args:
+            hook_func: Function that takes RequestContext and modifies it
+        """
+        self.plugin_manager.register_hook(HookType.PRE_REQUEST, hook_func)
+    
+    def register_post_response_hook(self, hook_func: Callable[[ResponseContext], None]):
+        """
+        Register a post-response hook.
+        
+        Args:
+            hook_func: Function that takes ResponseContext and can inspect/modify response
+        """
+        self.plugin_manager.register_hook(HookType.POST_RESPONSE, hook_func)
+    
+    def register_error_hook(self, hook_func: Callable[[ErrorContext], None]):
+        """
+        Register an error handling hook.
+        
+        Args:
+            hook_func: Function that takes ErrorContext and can handle errors
+        """
+        self.plugin_manager.register_hook(HookType.ERROR_HANDLER, hook_func)
+    
+    def unregister_hook(self, hook_type: HookType, hook_func: Callable):
+        """
+        Unregister a specific hook.
+        
+        Args:
+            hook_type: Type of hook to unregister
+            hook_func: Function to remove
+        """
+        self.plugin_manager.unregister_hook(hook_type, hook_func)
+    
+    def list_hooks(self) -> Dict[str, List[str]]:
+        """List all registered hooks."""
+        return self.plugin_manager.list_hooks()
+    
     def get_stats(self) -> Dict[str, Any]:
         """
         Get current statistics about the connection manager.
@@ -212,10 +283,12 @@ class ConnectionManager:
         Returns:
             Dictionary with current stats
         """
-        return {
+        stats = {
             'circuit_breaker_state': self.circuit_breaker.current_state,
             'circuit_breaker_failure_count': self.circuit_breaker.fail_counter,
             'rate_limit_requests': self.rate_limit_requests,
             'rate_limit_period': self.rate_limit_period,
-            'timeout': self.timeout
+            'timeout': self.timeout,
+            'registered_hooks': self.list_hooks()
         }
+        return stats

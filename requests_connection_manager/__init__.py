@@ -10,6 +10,13 @@ from .exceptions import (
     CircuitBreakerOpen,
     MaxRetriesExceeded
 )
+from .plugins import (
+    PluginManager,
+    RequestContext,
+    ResponseContext,
+    ErrorContext,
+    HookType
+)
 
 __version__ = "1.0.0"
 __author__ = "requests-connection-manager"
@@ -20,5 +27,10 @@ __all__ = [
     "ConnectionManagerError",
     "RateLimitExceeded",
     "CircuitBreakerOpen",
-    "MaxRetriesExceeded"
+    "MaxRetriesExceeded",
+    "PluginManager",
+    "RequestContext",
+    "ResponseContext", 
+    "ErrorContext",
+    "HookType"
 ]

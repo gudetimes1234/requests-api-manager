@@ -108,6 +108,41 @@ manager.remove_endpoint_config('old-api.com')
 configs = manager.get_endpoint_configs()
 ```
 
+### Authentication
+
+ConnectionManager supports various authentication methods that can be applied globally or per-endpoint:
+
+```python
+# API Key authentication
+manager = ConnectionManager(
+    api_key="your-api-key",
+    api_key_header="X-API-Key"  # Custom header name
+)
+
+# Bearer token authentication
+manager = ConnectionManager(bearer_token="your-bearer-token")
+
+# OAuth2 token authentication
+manager = ConnectionManager(oauth2_token="your-oauth2-token")
+
+# Basic authentication
+manager = ConnectionManager(basic_auth=("username", "password"))
+
+# Set authentication after initialization
+manager.set_api_key("new-api-key", "Authorization")
+manager.set_bearer_token("new-bearer-token")
+manager.set_oauth2_token("new-oauth2-token")
+manager.set_basic_auth("user", "pass")
+
+# Endpoint-specific authentication
+manager.set_endpoint_auth('api.service1.com', 'bearer', token='service1-token')
+manager.set_endpoint_auth('api.service2.com', 'api_key', api_key='service2-key', header_name='X-Service2-Key')
+
+# Clear authentication
+manager.clear_auth()  # Global
+manager.clear_auth('api.service1.com')  # Endpoint-specific
+```
+
 ## Usage Examples
 
 ### Basic HTTP Methods

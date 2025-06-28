@@ -41,7 +41,12 @@ class ConnectionManager:
         circuit_breaker_failure_threshold: int = 5,
         circuit_breaker_recovery_timeout: float = 60,
         timeout: int = 30,
-        endpoint_configs: Optional[Dict[str, Dict[str, Any]]] = None
+        endpoint_configs: Optional[Dict[str, Dict[str, Any]]] = None,
+        api_key: Optional[str] = None,
+        api_key_header: str = "X-API-Key",
+        bearer_token: Optional[str] = None,
+        oauth2_token: Optional[str] = None,
+        basic_auth: Optional[tuple] = None
     ):
         """
         Initialize ConnectionManager with configuration options.
@@ -57,6 +62,11 @@ class ConnectionManager:
             circuit_breaker_recovery_timeout: Recovery timeout for circuit breaker
             timeout: Default request timeout
             endpoint_configs: Dict mapping URL patterns to custom configurations
+            api_key: Global API key for authentication
+            api_key_header: Header name for API key (default: X-API-Key)
+            bearer_token: Global Bearer token for authentication
+            oauth2_token: Global OAuth2 token for authentication
+            basic_auth: Tuple of (username, password) for basic authentication
         """
         # Store default configuration values
         self.default_timeout = timeout
@@ -69,6 +79,13 @@ class ConnectionManager:
         
         # Store endpoint-specific configurations
         self.endpoint_configs = endpoint_configs or {}
+        
+        # Store authentication options
+        self.api_key = api_key
+        self.api_key_header = api_key_header
+        self.bearer_token = bearer_token
+        self.oauth2_token = oauth2_token
+        self.basic_auth = basic_auth
         
         # Keep these for backward compatibility
         self.timeout = timeout
@@ -209,6 +226,9 @@ class ConnectionManager:
         if 'timeout' not in kwargs:
             kwargs['timeout'] = endpoint_config['timeout']
         
+        # Apply authentication
+        self._apply_authentication(kwargs, url)
+        
         try:
             # Create endpoint-specific rate limiter if needed
             rate_limiter = self._get_rate_limiter_for_endpoint(endpoint_config)
@@ -296,6 +316,42 @@ class ConnectionManager:
             )
         
         return self._endpoint_circuit_breakers[circuit_breaker_key]
+    
+    def _apply_authentication(self, kwargs: Dict[str, Any], url: str):
+        """
+        Apply authentication headers to the request.
+        
+        Args:
+            kwargs: Request parameters dictionary
+            url: Request URL for endpoint-specific auth
+        """
+        # Initialize headers if not present
+        if 'headers' not in kwargs:
+            kwargs['headers'] = {}
+        
+        # Check for endpoint-specific authentication first
+        endpoint_config = self._get_endpoint_config(url)
+        
+        # Apply API key authentication
+        api_key = endpoint_config.get('api_key', self.api_key)
+        api_key_header = endpoint_config.get('api_key_header', self.api_key_header)
+        if api_key:
+            kwargs['headers'][api_key_header] = api_key
+        
+        # Apply Bearer token authentication
+        bearer_token = endpoint_config.get('bearer_token', self.bearer_token)
+        if bearer_token:
+            kwargs['headers']['Authorization'] = f'Bearer {bearer_token}'
+        
+        # Apply OAuth2 token authentication
+        oauth2_token = endpoint_config.get('oauth2_token', self.oauth2_token)
+        if oauth2_token:
+            kwargs['headers']['Authorization'] = f'Bearer {oauth2_token}'
+        
+        # Apply basic authentication
+        basic_auth = endpoint_config.get('basic_auth', self.basic_auth)
+        if basic_auth and 'auth' not in kwargs:
+            kwargs['auth'] = basic_auth
 
     def _handle_error(self, exception: Exception, request_context: RequestContext):
         """Handle errors through the plugin system."""
@@ -422,6 +478,96 @@ class ConnectionManager:
             Dictionary of endpoint patterns and their configurations
         """
         return self.endpoint_configs.copy()
+    
+    def set_api_key(self, api_key: str, header_name: str = "X-API-Key"):
+        """
+        Set global API key authentication.
+        
+        Args:
+            api_key: The API key value
+            header_name: The header name for the API key (default: X-API-Key)
+        """
+        self.api_key = api_key
+        self.api_key_header = header_name
+        logger.info(f"Set global API key authentication with header: {header_name}")
+    
+    def set_bearer_token(self, token: str):
+        """
+        Set global Bearer token authentication.
+        
+        Args:
+            token: The Bearer token value
+        """
+        self.bearer_token = token
+        logger.info("Set global Bearer token authentication")
+    
+    def set_oauth2_token(self, token: str):
+        """
+        Set global OAuth2 token authentication.
+        
+        Args:
+            token: The OAuth2 token value
+        """
+        self.oauth2_token = token
+        logger.info("Set global OAuth2 token authentication")
+    
+    def set_basic_auth(self, username: str, password: str):
+        """
+        Set global basic authentication.
+        
+        Args:
+            username: Username for basic auth
+            password: Password for basic auth
+        """
+        self.basic_auth = (username, password)
+        logger.info("Set global basic authentication")
+    
+    def set_endpoint_auth(self, pattern: str, auth_type: str, **auth_kwargs):
+        """
+        Set authentication for a specific endpoint pattern.
+        
+        Args:
+            pattern: URL pattern to match
+            auth_type: Type of authentication ('api_key', 'bearer', 'oauth2', 'basic')
+            **auth_kwargs: Authentication parameters based on auth_type
+        """
+        if pattern not in self.endpoint_configs:
+            self.endpoint_configs[pattern] = {}
+        
+        if auth_type == 'api_key':
+            self.endpoint_configs[pattern]['api_key'] = auth_kwargs['api_key']
+            self.endpoint_configs[pattern]['api_key_header'] = auth_kwargs.get('header_name', 'X-API-Key')
+        elif auth_type == 'bearer':
+            self.endpoint_configs[pattern]['bearer_token'] = auth_kwargs['token']
+        elif auth_type == 'oauth2':
+            self.endpoint_configs[pattern]['oauth2_token'] = auth_kwargs['token']
+        elif auth_type == 'basic':
+            self.endpoint_configs[pattern]['basic_auth'] = (auth_kwargs['username'], auth_kwargs['password'])
+        else:
+            raise ValueError(f"Unsupported auth_type: {auth_type}")
+        
+        logger.info(f"Set {auth_type} authentication for endpoint pattern: {pattern}")
+    
+    def clear_auth(self, pattern: Optional[str] = None):
+        """
+        Clear authentication for a specific endpoint or globally.
+        
+        Args:
+            pattern: URL pattern to clear auth for, or None for global auth
+        """
+        if pattern:
+            if pattern in self.endpoint_configs:
+                auth_keys = ['api_key', 'api_key_header', 'bearer_token', 'oauth2_token', 'basic_auth']
+                for key in auth_keys:
+                    self.endpoint_configs[pattern].pop(key, None)
+                logger.info(f"Cleared authentication for endpoint pattern: {pattern}")
+        else:
+            self.api_key = None
+            self.api_key_header = "X-API-Key"
+            self.bearer_token = None
+            self.oauth2_token = None
+            self.basic_auth = None
+            logger.info("Cleared global authentication")
 
     def get_stats(self) -> Dict[str, Any]:
         """

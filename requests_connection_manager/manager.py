@@ -6,7 +6,7 @@ rate limiting, and circuit breaker functionality for HTTP requests.
 import time
 import threading
 import logging
-from typing import Optional, Dict, Any, Union, Callable
+from typing import Optional, Dict, Any, Union, Callable, Tuple, Type
 from urllib3 import PoolManager
 from urllib3.util.retry import Retry
 import requests
@@ -66,7 +66,7 @@ class TokenBucket:
 class CircuitBreaker:
     """Circuit breaker implementation to handle service failures."""
     
-    def __init__(self, failure_threshold: int = 5, recovery_timeout: int = 60, expected_exception: type = Exception):
+    def __init__(self, failure_threshold: int = 5, recovery_timeout: float = 60, expected_exception: Union[Type[Exception], Tuple[Type[Exception], ...]] = Exception):
         """
         Initialize circuit breaker.
         
@@ -111,8 +111,9 @@ class CircuitBreaker:
             result = func(*args, **kwargs)
             self._on_success()
             return result
-        except self.expected_exception as e:
-            self._on_failure()
+        except Exception as e:
+            if isinstance(e, self.expected_exception):
+                self._on_failure()
             raise e
     
     def _on_success(self):
@@ -148,7 +149,7 @@ class ConnectionManager:
         rate_limit_requests: int = 100,
         rate_limit_period: int = 60,
         circuit_breaker_failure_threshold: int = 5,
-        circuit_breaker_recovery_timeout: int = 60,
+        circuit_breaker_recovery_timeout: float = 60,
         timeout: int = 30
     ):
         """

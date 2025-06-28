@@ -33,11 +33,11 @@ class TestTokenBucket:
         
         # Should be able to consume tokens
         assert bucket.consume(5) is True
-        assert bucket.tokens == 5
+        assert abs(bucket.tokens - 5) < 0.001  # Use approximate comparison for floating point
         
         # Should not be able to consume more than available
         assert bucket.consume(6) is False
-        assert bucket.tokens == 5
+        assert abs(bucket.tokens - 5) < 0.001  # Use approximate comparison for floating point
     
     def test_token_refill(self):
         """Test token refill over time."""
@@ -230,12 +230,12 @@ class TestConnectionManager:
         # Mock consistent failures
         mock_request.side_effect = requests.RequestException("Connection failed")
         
-        # First failure
-        with pytest.raises(requests.RequestException):
+        # First failure - should get MaxRetriesExceeded since retries are disabled
+        with pytest.raises(MaxRetriesExceeded):
             manager.get('http://example.com')
         
-        # Second failure - should open circuit
-        with pytest.raises(requests.RequestException):
+        # Second failure - should open circuit and still get MaxRetriesExceeded
+        with pytest.raises(MaxRetriesExceeded):
             manager.get('http://example.com')
         
         # Third attempt should raise CircuitBreakerOpen

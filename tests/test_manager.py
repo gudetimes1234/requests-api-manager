@@ -253,6 +253,93 @@ class TestConnectionManager:
         
         manager.close()
     
+    @patch('requests.Session.request')
+    def test_batch_request_basic(self, mock_request):
+        """Test basic batch request functionality."""
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_request.return_value = mock_response
+        
+        manager = ConnectionManager()
+        
+        # Define batch requests
+        requests_data = [
+            ('GET', 'http://example.com/1', {}),
+            ('POST', 'http://example.com/2', {'json': {'key': 'value'}}),
+            ('GET', 'http://example.com/3', {'timeout': 10})
+        ]
+        
+        # Execute batch request
+        results = manager.batch_request(requests_data, max_workers=2)
+        
+        # Verify results
+        assert len(results) == 3
+        for result in results:
+            assert hasattr(result, 'status_code')
+            assert result.status_code == 200
+        
+        # Verify all requests were made
+        assert mock_request.call_count == 3
+        
+        manager.close()
+    
+    @patch('requests.Session.request')
+    def test_batch_request_with_exceptions(self, mock_request):
+        """Test batch request with exceptions."""
+        def side_effect(*args, **kwargs):
+            if 'fail' in kwargs.get('url', ''):
+                raise requests.exceptions.RequestException("Test error")
+            mock_response = Mock()
+            mock_response.status_code = 200
+            return mock_response
+        
+        mock_request.side_effect = side_effect
+        
+        manager = ConnectionManager()
+        
+        requests_data = [
+            ('GET', 'http://example.com/success', {}),
+            ('GET', 'http://example.com/fail', {}),
+            ('GET', 'http://example.com/success2', {})
+        ]
+        
+        # Test with return_exceptions=True (default)
+        results = manager.batch_request(requests_data, max_workers=3)
+        
+        assert len(results) == 3
+        assert hasattr(results[0], 'status_code')  # Success
+        assert isinstance(results[1], Exception)    # Failed
+        assert hasattr(results[2], 'status_code')   # Success
+        
+        manager.close()
+    
+    def test_batch_request_empty_input(self):
+        """Test batch request with empty input."""
+        manager = ConnectionManager()
+        
+        results = manager.batch_request([])
+        assert results == []
+        
+        manager.close()
+    
+    def test_batch_request_invalid_input(self):
+        """Test batch request with invalid input."""
+        manager = ConnectionManager()
+        
+        # Invalid tuple format
+        with pytest.raises(ValueError, match="must be a tuple/list"):
+            manager.batch_request([('GET', 'http://example.com')])  # Missing kwargs
+        
+        # Invalid method type
+        with pytest.raises(ValueError, match="method and url must be strings"):
+            manager.batch_request([(123, 'http://example.com', {})])
+        
+        # Invalid kwargs type
+        with pytest.raises(ValueError, match="kwargs must be a dictionary"):
+            manager.batch_request([('GET', 'http://example.com', "invalid")])
+        
+        manager.close()
+
     def test_real_http_request(self):
         """Test real HTTP request to httpbin.org using ConnectionManager."""
         manager = ConnectionManager()

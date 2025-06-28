@@ -6,12 +6,13 @@ rate limiting, and circuit breaker functionality for HTTP requests.
 
 import time
 import logging
-from typing import Optional, Dict, Any, Callable, List
+from typing import Optional, Dict, Any, Callable, List, Tuple, Union
 from urllib3.util.retry import Retry
 import requests
 from requests.adapters import HTTPAdapter
 from ratelimit import limits, sleep_and_retry
 import pybreaker
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .exceptions import (
     ConnectionManagerError,
@@ -568,6 +569,83 @@ class ConnectionManager:
             self.oauth2_token = None
             self.basic_auth = None
             logger.info("Cleared global authentication")
+
+    def batch_request(
+        self, 
+        requests_data: List[Tuple[str, str, Dict[str, Any]]], 
+        max_workers: int = 5,
+        return_exceptions: bool = True
+    ) -> List[Union[requests.Response, Exception]]:
+        """
+        Perform multiple HTTP requests concurrently with controlled parallelism.
+        
+        Args:
+            requests_data: List of tuples (method, url, kwargs) for each request
+            max_workers: Maximum number of concurrent requests (default: 5)
+            return_exceptions: If True, exceptions are returned in results instead of raised
+            
+        Returns:
+            List of Response objects or exceptions in the same order as input requests
+            
+        Example:
+            requests_data = [
+                ('GET', 'https://api.example.com/users', {}),
+                ('POST', 'https://api.example.com/data', {'json': {'key': 'value'}}),
+                ('GET', 'https://api.example.com/status', {'timeout': 10})
+            ]
+            results = manager.batch_request(requests_data, max_workers=3)
+        """
+        if not requests_data:
+            return []
+        
+        # Validate input data
+        for i, request_tuple in enumerate(requests_data):
+            if not isinstance(request_tuple, (tuple, list)) or len(request_tuple) != 3:
+                raise ValueError(f"Request {i} must be a tuple/list of (method, url, kwargs)")
+            method, url, kwargs = request_tuple
+            if not isinstance(method, str) or not isinstance(url, str):
+                raise ValueError(f"Request {i}: method and url must be strings")
+            if not isinstance(kwargs, dict):
+                raise ValueError(f"Request {i}: kwargs must be a dictionary")
+        
+        results = [None] * len(requests_data)
+        
+        def _execute_single_request(index: int, method: str, url: str, kwargs: Dict[str, Any]):
+            """Execute a single request and return (index, result)."""
+            try:
+                response = self.request(method, url, **kwargs)
+                return index, response
+            except Exception as e:
+                logger.warning(f"Batch request {index} failed: {method} {url} - {str(e)}")
+                return index, e
+        
+        # Execute requests concurrently using ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all requests
+            future_to_index = {
+                executor.submit(_execute_single_request, i, method, url, kwargs): i 
+                for i, (method, url, kwargs) in enumerate(requests_data)
+            }
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_index):
+                try:
+                    index, result = future.result()
+                    results[index] = result
+                except Exception as e:
+                    # This should not happen as exceptions are caught in _execute_single_request
+                    index = future_to_index[future]
+                    logger.error(f"Unexpected error in batch request {index}: {str(e)}")
+                    results[index] = e
+        
+        # Handle exceptions based on return_exceptions flag
+        if not return_exceptions:
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    raise result
+        
+        logger.info(f"Completed batch request with {len(requests_data)} requests using {max_workers} workers")
+        return results
 
     def get_stats(self) -> Dict[str, Any]:
         """

@@ -143,6 +143,29 @@ manager.clear_auth()  # Global
 manager.clear_auth('api.service1.com')  # Endpoint-specific
 ```
 
+### Batch Requests
+
+Perform multiple HTTP requests concurrently with controlled parallelism:
+
+```python
+# Define multiple requests
+requests_data = [
+    ('GET', 'https://api.example.com/users', {}),
+    ('POST', 'https://api.example.com/data', {'json': {'key': 'value'}}),
+    ('GET', 'https://api.example.com/status', {'timeout': 10})
+]
+
+# Execute concurrently with max 5 workers
+results = manager.batch_request(requests_data, max_workers=5)
+
+# Process results
+for i, result in enumerate(results):
+    if hasattr(result, 'status_code'):
+        print(f"Request {i}: Success - {result.status_code}")
+    else:
+        print(f"Request {i}: Error - {result}")
+```
+
 ## Usage Examples
 
 ### Basic HTTP Methods

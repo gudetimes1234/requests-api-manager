@@ -53,6 +53,61 @@ manager = ConnectionManager(
 )
 ```
 
+### Per-Endpoint Configuration
+
+Configure different settings for specific endpoints or URL patterns:
+
+```python
+# Define endpoint-specific configurations
+endpoint_configs = {
+    'api.example.com': {
+        'timeout': 60,
+        'rate_limit_requests': 50,
+        'rate_limit_period': 60,
+        'max_retries': 5,
+        'circuit_breaker_failure_threshold': 10
+    },
+    'slow-service.com': {
+        'timeout': 120,
+        'rate_limit_requests': 10,
+        'rate_limit_period': 60,
+        'backoff_factor': 1.0
+    }
+}
+
+manager = ConnectionManager(
+    timeout=30,  # Default timeout
+    endpoint_configs=endpoint_configs
+)
+
+# Requests to api.example.com will use 60s timeout and 50 req/min limit
+response = manager.get('https://api.example.com/data')
+
+# Requests to other URLs will use default 30s timeout
+response = manager.get('https://other-service.com/data')
+```
+
+### Dynamic Endpoint Configuration
+
+Add or modify endpoint configurations at runtime:
+
+```python
+manager = ConnectionManager()
+
+# Add new endpoint configuration
+manager.add_endpoint_config('new-api.com', {
+    'timeout': 45,
+    'rate_limit_requests': 75,
+    'max_retries': 3
+})
+
+# Remove endpoint configuration
+manager.remove_endpoint_config('old-api.com')
+
+# View all endpoint configurations
+configs = manager.get_endpoint_configs()
+```
+
 ## Usage Examples
 
 ### Basic HTTP Methods

@@ -6,7 +6,7 @@ rate limiting, and circuit breaker functionality for HTTP requests.
 
 import time
 import logging
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any, Callable, List
 from urllib3.util.retry import Retry
 import requests
 from requests.adapters import HTTPAdapter
@@ -40,7 +40,8 @@ class ConnectionManager:
         rate_limit_period: int = 60,
         circuit_breaker_failure_threshold: int = 5,
         circuit_breaker_recovery_timeout: float = 60,
-        timeout: int = 30
+        timeout: int = 30,
+        endpoint_configs: Optional[Dict[str, Dict[str, Any]]] = None
     ):
         """
         Initialize ConnectionManager with configuration options.
@@ -55,7 +56,21 @@ class ConnectionManager:
             circuit_breaker_failure_threshold: Failures before opening circuit
             circuit_breaker_recovery_timeout: Recovery timeout for circuit breaker
             timeout: Default request timeout
+            endpoint_configs: Dict mapping URL patterns to custom configurations
         """
+        # Store default configuration values
+        self.default_timeout = timeout
+        self.default_rate_limit_requests = rate_limit_requests
+        self.default_rate_limit_period = rate_limit_period
+        self.default_max_retries = max_retries
+        self.default_backoff_factor = backoff_factor
+        self.default_circuit_breaker_failure_threshold = circuit_breaker_failure_threshold
+        self.default_circuit_breaker_recovery_timeout = circuit_breaker_recovery_timeout
+        
+        # Store endpoint-specific configurations
+        self.endpoint_configs = endpoint_configs or {}
+        
+        # Keep these for backward compatibility
         self.timeout = timeout
         self.rate_limit_requests = rate_limit_requests
         self.rate_limit_period = rate_limit_period
@@ -107,6 +122,36 @@ class ConnectionManager:
         
         logger.info("ConnectionManager initialized with pooling, retries, rate limiting, circuit breaker, and plugin system")
     
+    def _get_endpoint_config(self, url: str) -> Dict[str, Any]:
+        """
+        Get configuration for a specific endpoint URL.
+        
+        Args:
+            url: The request URL
+            
+        Returns:
+            Dictionary with configuration values for this endpoint
+        """
+        # Default configuration
+        config = {
+            'timeout': self.default_timeout,
+            'rate_limit_requests': self.default_rate_limit_requests,
+            'rate_limit_period': self.default_rate_limit_period,
+            'max_retries': self.default_max_retries,
+            'backoff_factor': self.default_backoff_factor,
+            'circuit_breaker_failure_threshold': self.default_circuit_breaker_failure_threshold,
+            'circuit_breaker_recovery_timeout': self.default_circuit_breaker_recovery_timeout
+        }
+        
+        # Check if URL matches any endpoint patterns
+        for pattern, endpoint_config in self.endpoint_configs.items():
+            if pattern in url:
+                # Update config with endpoint-specific values
+                config.update(endpoint_config)
+                break
+        
+        return config
+    
     def _make_request(self, method: str, url: str, **kwargs) -> requests.Response:
         """
         Internal method to make HTTP request with optimized parameter handling.
@@ -148,6 +193,9 @@ class ConnectionManager:
             CircuitBreakerOpen: When circuit breaker is open
             ConnectionManagerError: For other connection manager errors
         """
+        # Get endpoint-specific configuration
+        endpoint_config = self._get_endpoint_config(url)
+        
         # Create request context and execute pre-request hooks
         request_context = RequestContext(method, url, **kwargs)
         self.plugin_manager.execute_pre_request_hooks(request_context)
@@ -157,10 +205,20 @@ class ConnectionManager:
         url = request_context.url
         kwargs = request_context.kwargs
         
+        # Apply endpoint-specific timeout if not already specified
+        if 'timeout' not in kwargs:
+            kwargs['timeout'] = endpoint_config['timeout']
+        
         try:
-            # Use pre-configured rate limiter with circuit breaker
-            response = self._rate_limited_wrapper(
-                self.circuit_breaker(self._make_request),
+            # Create endpoint-specific rate limiter if needed
+            rate_limiter = self._get_rate_limiter_for_endpoint(endpoint_config)
+            
+            # Create endpoint-specific circuit breaker if needed
+            circuit_breaker = self._get_circuit_breaker_for_endpoint(url, endpoint_config)
+            
+            # Use endpoint-specific rate limiter with circuit breaker
+            response = rate_limiter(
+                circuit_breaker(self._make_request),
                 method,
                 url,
                 **kwargs
@@ -181,6 +239,64 @@ class ConnectionManager:
             logger.error(f"Request failed: {method} {url} - {str(e)}")
             return self._handle_error(e, request_context)
     
+    def _get_rate_limiter_for_endpoint(self, endpoint_config: Dict[str, Any]) -> Callable:
+        """
+        Get or create a rate limiter for the endpoint configuration.
+        
+        Args:
+            endpoint_config: Configuration dictionary for the endpoint
+            
+        Returns:
+            Rate limiter function
+        """
+        # Use default rate limiter if endpoint config matches defaults
+        if (endpoint_config['rate_limit_requests'] == self.default_rate_limit_requests and 
+            endpoint_config['rate_limit_period'] == self.default_rate_limit_period):
+            return self._rate_limited_wrapper
+        
+        # Create custom rate limiter for this endpoint
+        @sleep_and_retry
+        @limits(calls=endpoint_config['rate_limit_requests'], period=endpoint_config['rate_limit_period'])
+        def _endpoint_rate_limited_wrapper(func: Callable, *args, **kwargs):
+            return func(*args, **kwargs)
+        
+        return _endpoint_rate_limited_wrapper
+    
+    def _get_circuit_breaker_for_endpoint(self, url: str, endpoint_config: Dict[str, Any]) -> pybreaker.CircuitBreaker:
+        """
+        Get or create a circuit breaker for the endpoint configuration.
+        
+        Args:
+            url: The request URL
+            endpoint_config: Configuration dictionary for the endpoint
+            
+        Returns:
+            Circuit breaker instance
+        """
+        # Use default circuit breaker if endpoint config matches defaults
+        if (endpoint_config['circuit_breaker_failure_threshold'] == self.default_circuit_breaker_failure_threshold and 
+            endpoint_config['circuit_breaker_recovery_timeout'] == self.default_circuit_breaker_recovery_timeout):
+            return self.circuit_breaker
+        
+        # Create or get cached circuit breaker for this endpoint
+        if not hasattr(self, '_endpoint_circuit_breakers'):
+            self._endpoint_circuit_breakers = {}
+        
+        # Use URL domain as key for circuit breaker caching
+        from urllib.parse import urlparse
+        domain = urlparse(url).netloc or url
+        
+        circuit_breaker_key = f"{domain}_{endpoint_config['circuit_breaker_failure_threshold']}_{endpoint_config['circuit_breaker_recovery_timeout']}"
+        
+        if circuit_breaker_key not in self._endpoint_circuit_breakers:
+            self._endpoint_circuit_breakers[circuit_breaker_key] = pybreaker.CircuitBreaker(
+                fail_max=endpoint_config['circuit_breaker_failure_threshold'],
+                reset_timeout=endpoint_config['circuit_breaker_recovery_timeout'],
+                exclude=[RateLimitExceeded]
+            )
+        
+        return self._endpoint_circuit_breakers[circuit_breaker_key]
+
     def _handle_error(self, exception: Exception, request_context: RequestContext):
         """Handle errors through the plugin system."""
         error_context = ErrorContext(exception, request_context)
@@ -276,6 +392,37 @@ class ConnectionManager:
         """List all registered hooks."""
         return self.plugin_manager.list_hooks()
     
+    def add_endpoint_config(self, pattern: str, config: Dict[str, Any]):
+        """
+        Add or update configuration for a specific endpoint pattern.
+        
+        Args:
+            pattern: URL pattern to match (substring match)
+            config: Configuration dictionary with custom settings
+        """
+        self.endpoint_configs[pattern] = config
+        logger.info(f"Added endpoint configuration for pattern: {pattern}")
+    
+    def remove_endpoint_config(self, pattern: str):
+        """
+        Remove configuration for a specific endpoint pattern.
+        
+        Args:
+            pattern: URL pattern to remove
+        """
+        if pattern in self.endpoint_configs:
+            del self.endpoint_configs[pattern]
+            logger.info(f"Removed endpoint configuration for pattern: {pattern}")
+    
+    def get_endpoint_configs(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Get all endpoint configurations.
+        
+        Returns:
+            Dictionary of endpoint patterns and their configurations
+        """
+        return self.endpoint_configs.copy()
+
     def get_stats(self) -> Dict[str, Any]:
         """
         Get current statistics about the connection manager.
@@ -289,6 +436,7 @@ class ConnectionManager:
             'rate_limit_requests': self.rate_limit_requests,
             'rate_limit_period': self.rate_limit_period,
             'timeout': self.timeout,
-            'registered_hooks': self.list_hooks()
+            'registered_hooks': self.list_hooks(),
+            'endpoint_configs': self.get_endpoint_configs()
         }
         return stats

@@ -85,6 +85,24 @@ response = manager.get('https://api.example.com/data')
 
 # Requests to other URLs will use default 30s timeout
 response = manager.get('https://other-service.com/data')
+
+# Endpoint-specific advanced connection options
+endpoint_configs = {
+    'secure-api.company.com': {
+        'verify': '/path/to/company-ca.pem',
+        'cert': ('/path/to/company-client.crt', '/path/to/company-client.key'),
+        'connect_timeout': 2.0,
+        'read_timeout': 45.0,
+        'bearer_token': 'company-specific-token'
+    },
+    'public-api.example.com': {
+        'verify': True,  # Use system CA bundle
+        'connect_timeout': 5.0,
+        'read_timeout': 15.0
+    }
+}
+
+manager = ConnectionManager(endpoint_configs=endpoint_configs)
 ```
 
 ### Dynamic Endpoint Configuration
@@ -106,6 +124,41 @@ manager.remove_endpoint_config('old-api.com')
 
 # View all endpoint configurations
 configs = manager.get_endpoint_configs()
+```
+
+### Advanced Connection Options
+
+ConnectionManager provides advanced SSL and connection configuration options:
+
+```python
+import ssl
+
+# Custom SSL context
+ssl_context = ssl.create_default_context()
+ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+
+manager = ConnectionManager(
+    # SSL certificate verification
+    verify="/path/to/custom-ca-bundle.pem",  # Custom CA bundle
+    # verify=False,  # Disable SSL verification (not recommended)
+    
+    # Client certificates for mutual TLS
+    cert="/path/to/client.pem",  # Single file with cert and key
+    # cert=("/path/to/client.crt", "/path/to/client.key"),  # Separate files
+    
+    # Fine-grained timeouts
+    connect_timeout=5.0,  # Connection timeout
+    read_timeout=30.0,    # Read timeout
+    
+    # Custom SSL context
+    ssl_context=ssl_context
+)
+
+# Update options after initialization
+manager.set_ssl_verification("/path/to/new-ca-bundle.pem")
+manager.set_client_certificate(("/path/to/cert.crt", "/path/to/key.key"))
+manager.set_timeouts(connect_timeout=3.0, read_timeout=25.0)
+manager.set_ssl_context(ssl_context)
 ```
 
 ### Authentication

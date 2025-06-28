@@ -46,7 +46,13 @@ class AsyncConnectionManager:
         api_key_header: str = "X-API-Key",
         bearer_token: Optional[str] = None,
         oauth2_token: Optional[str] = None,
-        basic_auth: Optional[tuple] = None
+        basic_auth: Optional[tuple] = None,
+        # Advanced connection options
+        verify: Union[bool, str] = True,
+        cert: Optional[Union[str, tuple]] = None,
+        connect_timeout: Optional[float] = None,
+        read_timeout: Optional[float] = None,
+        ssl_context: Optional[Any] = None
     ):
         """
         Initialize AsyncConnectionManager with configuration options.
@@ -66,6 +72,11 @@ class AsyncConnectionManager:
             bearer_token: Global Bearer token for authentication
             oauth2_token: Global OAuth2 token for authentication
             basic_auth: Tuple of (username, password) for basic authentication
+            verify: SSL certificate verification. True (default), False, or path to CA bundle
+            cert: Client certificate. Path to cert file or tuple of (cert, key)
+            connect_timeout: Connection timeout in seconds (separate from read timeout)
+            read_timeout: Read timeout in seconds (separate from connect timeout)
+            ssl_context: Custom SSL context for advanced SSL configuration
         """
         # Store default configuration values
         self.default_timeout = timeout
@@ -85,23 +96,49 @@ class AsyncConnectionManager:
         self.oauth2_token = oauth2_token
         self.basic_auth = basic_auth
         
+        # Store advanced connection options
+        self.verify = verify
+        self.cert = cert
+        self.connect_timeout = connect_timeout
+        self.read_timeout = read_timeout
+        self.ssl_context = ssl_context
+        
         # Keep these for backward compatibility
         self.timeout = timeout
         self.rate_limit_requests = rate_limit_requests
         self.rate_limit_period = rate_limit_period
         
         # Set up connection pooling with httpx.AsyncClient
-        self.client = httpx.AsyncClient(
-            limits=httpx.Limits(
+        client_kwargs = {
+            'limits': httpx.Limits(
                 max_keepalive_connections=pool_connections,
                 max_connections=pool_maxsize
             ),
-            timeout=httpx.Timeout(timeout),
-            # Configure retries using httpx transport
-            transport=httpx.AsyncHTTPTransport(
+            'timeout': httpx.Timeout(
+                connect=connect_timeout or timeout,
+                read=read_timeout or timeout,
+                write=timeout,
+                pool=timeout
+            ),
+            'verify': verify,
+        }
+        
+        # Add client certificate if provided
+        if cert is not None:
+            client_kwargs['cert'] = cert
+        
+        # Configure transport with SSL context if provided
+        if ssl_context is not None:
+            client_kwargs['transport'] = httpx.AsyncHTTPTransport(
+                retries=max_retries,
+                ssl_context=ssl_context
+            )
+        else:
+            client_kwargs['transport'] = httpx.AsyncHTTPTransport(
                 retries=max_retries
             )
-        )
+        
+        self.client = httpx.AsyncClient(**client_kwargs)
         
         # Set up circuit breaker using pybreaker
         self.circuit_breaker = pybreaker.CircuitBreaker(
@@ -167,7 +204,16 @@ class AsyncConnectionManager:
         # Handle timeout efficiently without modifying kwargs
         request_timeout = kwargs.get('timeout', self.timeout)
         if 'timeout' not in kwargs:
-            kwargs['timeout'] = request_timeout
+            # Apply fine-grained timeouts if specified
+            if self.connect_timeout is not None or self.read_timeout is not None:
+                kwargs['timeout'] = httpx.Timeout(
+                    connect=self.connect_timeout or request_timeout,
+                    read=self.read_timeout or request_timeout,
+                    write=request_timeout,
+                    pool=request_timeout
+                )
+            else:
+                kwargs['timeout'] = request_timeout
         
         # Safe logging of request details
         safe_log_request(
@@ -659,6 +705,50 @@ class AsyncConnectionManager:
         logger.info(f"Completed async batch request with {len(requests_data)} requests using max {max_workers} workers")
         return results
 
+    def set_ssl_verification(self, verify: Union[bool, str]):
+        """
+        Set SSL certificate verification.
+        
+        Args:
+            verify: True to use default CA bundle, False to disable, or path to CA bundle
+        """
+        self.verify = verify
+        logger.info(f"SSL verification set to: {verify}")
+    
+    def set_client_certificate(self, cert: Union[str, tuple]):
+        """
+        Set client certificate for mutual TLS.
+        
+        Args:
+            cert: Path to certificate file or tuple of (cert_file, key_file)
+        """
+        self.cert = cert
+        logger.info("Client certificate configured")
+    
+    def set_timeouts(self, connect_timeout: Optional[float] = None, read_timeout: Optional[float] = None):
+        """
+        Set fine-grained connection and read timeouts.
+        
+        Args:
+            connect_timeout: Connection timeout in seconds
+            read_timeout: Read timeout in seconds
+        """
+        if connect_timeout is not None:
+            self.connect_timeout = connect_timeout
+        if read_timeout is not None:
+            self.read_timeout = read_timeout
+        logger.info(f"Timeouts set - Connect: {self.connect_timeout}s, Read: {self.read_timeout}s")
+    
+    def set_ssl_context(self, ssl_context: Any):
+        """
+        Set custom SSL context for advanced SSL configuration.
+        
+        Args:
+            ssl_context: SSL context object
+        """
+        self.ssl_context = ssl_context
+        logger.info("Custom SSL context configured")
+
     def get_stats(self) -> Dict[str, Any]:
         """
         Get current statistics about the async connection manager.
@@ -674,6 +764,11 @@ class AsyncConnectionManager:
             'rate_limit_period': self.rate_limit_period,
             'timeout': self.timeout,
             'registered_hooks': self.list_hooks(),
-            'endpoint_configs': self.get_endpoint_configs()
+            'endpoint_configs': self.get_endpoint_configs(),
+            'ssl_verification': self.verify,
+            'client_certificate_configured': self.cert is not None,
+            'connect_timeout': self.connect_timeout,
+            'read_timeout': self.read_timeout,
+            'ssl_context_configured': self.ssl_context is not None
         }
         return stats

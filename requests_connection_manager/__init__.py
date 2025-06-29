@@ -3,7 +3,6 @@ requests-connection-manager - Enhanced HTTP connection management with pooling, 
 """
 
 from .manager import ConnectionManager
-from .async_manager import AsyncConnectionManager
 from .exceptions import (
     ConnectionManagerError,
     RateLimitExceeded,
@@ -28,7 +27,6 @@ from .utils import (
 from .version import __version__
 __all__ = [
     "ConnectionManager",
-    "AsyncConnectionManager",
     "ConnectionManagerError", 
     "RateLimitExceeded",
     "CircuitBreakerOpen",

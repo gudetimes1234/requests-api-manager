@@ -27,7 +27,6 @@ requests = "^2.25.0"
 urllib3 = "^1.26.0"
 ratelimit = "^2.2.1"
 pybreaker = "^1.2.0"
-httpx = "^0.28.1"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.0.0"

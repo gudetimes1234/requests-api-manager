@@ -97,6 +97,7 @@ The system follows a modular architecture with clear separation of concerns:
 - June 28, 2025: Created comprehensive README.md with installation instructions, usage examples, and complete API documentation
 - June 29, 2025: Resolved pytest-asyncio dependency conflicts, removed async components, all 12 core tests now passing with Python 3.11
 - June 29, 2025: Fixed Poetry lock file conflicts and cleaned up test suite, now 31/31 tests passing successfully with clean execution
+- June 29, 2025: Skipped failing test_get_stats_includes_hooks test as requested by user, MkDocs GitHub Pages deployment configured and verified working
 
 ## User Preferences
 

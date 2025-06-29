@@ -1,0 +1,82 @@
+
+site_name: requests-connection-manager
+site_description: Enhanced HTTP connection management with pooling, retries, rate limiting, and circuit breaker functionality
+site_author: Charles Gude
+site_url: https://requests-connection-manager.example.com
+
+repo_name: charlesgude/requests-connection-manager
+repo_url: https://github.com/charlesgude/requests-connection-manager
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: blue
+      accent: light blue
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: blue
+      accent: light blue
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - search.share
+    - content.code.annotate
+    - content.code.copy
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [requests_connection_manager]
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: installation.md
+    - Quick Start: quick-start.md
+  - Usage Guide:
+    - Basic Usage: usage/basic.md
+    - Authentication: usage/authentication.md
+    - Advanced Configuration: usage/advanced.md
+    - Endpoint Configuration: usage/endpoints.md
+    - Batch Requests: usage/batch.md
+    - Async Support: usage/async.md
+  - Examples:
+    - Basic Examples: examples/basic.md
+    - Authentication Examples: examples/authentication.md
+    - Advanced Examples: examples/advanced.md
+    - Plugin Examples: examples/plugins.md
+  - API Reference:
+    - ConnectionManager: api/manager.md
+    - AsyncConnectionManager: api/async-manager.md
+    - Exceptions: api/exceptions.md
+    - Plugins: api/plugins.md
+    - Utils: api/utils.md
+  - Contributing: contributing.md
+  - Changelog: changelog.md

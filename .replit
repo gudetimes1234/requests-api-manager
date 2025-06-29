@@ -35,3 +35,12 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pip install -e . && pip install pytest && python -m pytest tests/ -v"
+
+[[workflows.workflow]]
+name = "Serve Docs"
+author = 2522186
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "mkdocs serve --dev-addr=0.0.0.0:5000"

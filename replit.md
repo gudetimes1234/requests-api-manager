@@ -95,6 +95,7 @@ The system follows a modular architecture with clear separation of concerns:
 - June 28, 2025: Added integration test with httpbin.org endpoint to verify real HTTP request functionality
 - June 28, 2025: Converted pyproject.toml to Poetry format with Charles Gude as author and MIT license
 - June 28, 2025: Created comprehensive README.md with installation instructions, usage examples, and complete API documentation
+- June 29, 2025: Resolved pytest-asyncio dependency conflicts, removed async components, all 12 core tests now passing with Python 3.11
 
 ## User Preferences
 

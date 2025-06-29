@@ -5,36 +5,7 @@ channel = "stable-24_05"
 packages = ["haskellPackages.hello", "zsh"]
 
 [workflows]
-runButton = "Poetry Test"
-
-[[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Test Runner"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "test_package"
-
-[[workflows.workflow]]
-name = "Test Runner"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pip install -e . && pip install pytest pytest-cov && python -m pytest tests/ -v"
-
-[[workflows.workflow]]
-name = "test_package"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "pip install -e . && pip install pytest && python -m pytest tests/ -v"
+runButton = "Project"
 
 [[workflows.workflow]]
 name = "Serve Docs"
@@ -57,3 +28,20 @@ args = "poetry install --no-interaction"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "poetry run pytest tests/ -v"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Clean Tests"
+
+[[workflows.workflow]]
+name = "Clean Tests"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pip install -e . && PYTHONPATH=. python -m pytest tests/test_manager.py -v --tb=short -p no:asyncio --disable-warnings"

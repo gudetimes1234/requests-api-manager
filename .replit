@@ -5,7 +5,7 @@ channel = "stable-24_05"
 packages = ["haskellPackages.hello", "zsh"]
 
 [workflows]
-runButton = "Project"
+runButton = "Poetry Test"
 
 [[workflows.workflow]]
 name = "Project"
@@ -44,3 +44,16 @@ mode = "sequential"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "mkdocs serve --dev-addr=0.0.0.0:5000"
+
+[[workflows.workflow]]
+name = "Poetry Test"
+author = 2522186
+mode = "sequential"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "poetry install --no-interaction"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "poetry run pytest tests/ -v"

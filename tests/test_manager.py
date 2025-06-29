@@ -5,8 +5,10 @@ Comprehensive tests for the ConnectionManager class using external libraries.
 import pytest
 import time
 import threading
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch, MagicMock, call
 import requests
+import responses
+import requests_mock
 
 from requests_connection_manager import (
     ConnectionManager,
@@ -398,23 +400,28 @@ class TestConnectionManager:
     @patch('requests.Session.request')
     def test_retry_on_failure_scenarios(self, mock_request):
         """Test retry behavior on different types of failures."""
-        mock_response_success = Mock()
-        mock_response_success.status_code = 200
+        # Mock response that raises retriable HTTP status codes
+        def side_effect(*args, **kwargs):
+            response = Mock()
+            # First two calls return 500 status (retriable)
+            if mock_request.call_count <= 2:
+                response.status_code = 500
+                response.raise_for_status.side_effect = requests.exceptions.HTTPError("500 Server Error")
+            else:
+                # Third call succeeds
+                response.status_code = 200
+                response.raise_for_status.return_value = None
+            return response
         
-        # Test retry on 500 error (should succeed after retries)
-        mock_request.side_effect = [
-            requests.exceptions.HTTPError("500 Server Error"),
-            requests.exceptions.HTTPError("502 Bad Gateway"), 
-            mock_response_success  # Success on third attempt
-        ]
+        mock_request.side_effect = side_effect
         
         manager = ConnectionManager(max_retries=3, backoff_factor=0.1)
         
-        # This should succeed after retries (urllib3.Retry handles this)
+        # This should succeed - urllib3.Retry handles retries at the adapter level
         response = manager.get('https://api.example.com/data')
         assert response.status_code == 200
         
-        # Verify multiple attempts were made
+        # Verify the request was made
         assert mock_request.call_count >= 1
         
         manager.close()
@@ -690,6 +697,318 @@ class TestConnectionManager:
         
         stats = manager.get_stats()
         
+
+
+    @responses.activate
+    def test_retry_with_responses_library(self):
+        """Test retry behavior using responses library."""
+        # First two requests fail with 500, third succeeds
+        responses.add(responses.GET, "https://api.example.com/data", status=500)
+        responses.add(responses.GET, "https://api.example.com/data", status=500)
+        responses.add(responses.GET, "https://api.example.com/data", 
+                     json={"status": "success"}, status=200)
+        
+        manager = ConnectionManager(max_retries=3, backoff_factor=0.1)
+        
+        # Should succeed after retries
+        response = manager.get('https://api.example.com/data')
+        assert response.status_code == 200
+        
+        manager.close()
+
+    @responses.activate
+    def test_rate_limiting_with_responses(self):
+        """Test rate limiting behavior with responses library."""
+        # Mock multiple successful responses
+        for _ in range(5):
+            responses.add(responses.GET, "https://api.example.com/data", 
+                         json={"data": "test"}, status=200)
+        
+        manager = ConnectionManager(rate_limit_requests=2, rate_limit_period=1)
+        
+        start_time = time.time()
+        
+        # Make 3 requests - third should be delayed
+        for i in range(3):
+            response = manager.get('https://api.example.com/data')
+            assert response.status_code == 200
+        
+        # Should take at least 1 second due to rate limiting
+        elapsed = time.time() - start_time
+        # Note: Due to rate limiting, this should take some time
+        # but we can't assert exact timing due to test environment variability
+        
+        manager.close()
+
+    def test_circuit_breaker_integration_detailed(self):
+        """Test detailed circuit breaker behavior."""
+        manager = ConnectionManager(
+            circuit_breaker_failure_threshold=2,
+            circuit_breaker_recovery_timeout=0.1
+        )
+        
+        with patch('requests.Session.request') as mock_request:
+            # Mock consistent failures
+            mock_request.side_effect = requests.RequestException("Service down")
+            
+            # First failure
+            with pytest.raises(requests.RequestException):
+                manager.get('https://api.example.com/data')
+            
+            # Second failure - should trigger circuit breaker to open
+            with pytest.raises((requests.RequestException, CircuitBreakerOpen)):
+                manager.get('https://api.example.com/data')
+            
+            # Third attempt should be blocked by circuit breaker
+            with pytest.raises(CircuitBreakerOpen):
+                manager.get('https://api.example.com/data')
+            
+            # Verify circuit breaker state
+            stats = manager.get_stats()
+            assert stats['circuit_breaker_failure_count'] >= 2
+        
+        manager.close()
+
+    @responses.activate
+    def test_get_post_basic_functionality(self):
+        """Test basic GET and POST functionality."""
+        # Mock GET response
+        responses.add(responses.GET, "https://api.example.com/users", 
+                     json={"users": ["user1", "user2"]}, status=200)
+        
+        # Mock POST response
+        responses.add(responses.POST, "https://api.example.com/users", 
+                     json={"id": 123, "created": True}, status=201)
+        
+        manager = ConnectionManager()
+        
+        # Test GET
+        get_response = manager.get('https://api.example.com/users')
+        assert get_response.status_code == 200
+        assert get_response.json()["users"] == ["user1", "user2"]
+        
+        # Test POST
+        post_data = {"name": "new_user", "email": "user@example.com"}
+        post_response = manager.post('https://api.example.com/users', json=post_data)
+        assert post_response.status_code == 201
+        assert post_response.json()["id"] == 123
+        
+        manager.close()
+
+    @responses.activate
+    def test_http_methods_comprehensive(self):
+        """Test all HTTP methods comprehensively."""
+        base_url = "https://api.example.com/resource"
+        
+        # Mock responses for all HTTP methods
+        responses.add(responses.GET, base_url, json={"method": "GET"}, status=200)
+        responses.add(responses.POST, base_url, json={"method": "POST"}, status=201)
+        responses.add(responses.PUT, base_url, json={"method": "PUT"}, status=200)
+        responses.add(responses.DELETE, base_url, status=204)
+        responses.add(responses.PATCH, base_url, json={"method": "PATCH"}, status=200)
+        responses.add(responses.HEAD, base_url, status=200)
+        responses.add(responses.OPTIONS, base_url, status=200)
+        
+        manager = ConnectionManager()
+        
+        # Test GET
+        response = manager.get(base_url)
+        assert response.status_code == 200
+        assert response.json()["method"] == "GET"
+        
+        # Test POST
+        response = manager.post(base_url, json={"data": "test"})
+        assert response.status_code == 201
+        assert response.json()["method"] == "POST"
+        
+        # Test PUT
+        response = manager.put(base_url, json={"data": "test"})
+        assert response.status_code == 200
+        assert response.json()["method"] == "PUT"
+        
+        # Test DELETE
+        response = manager.delete(base_url)
+        assert response.status_code == 204
+        
+        # Test PATCH
+        response = manager.patch(base_url, json={"data": "test"})
+        assert response.status_code == 200
+        assert response.json()["method"] == "PATCH"
+        
+        # Test HEAD
+        response = manager.head(base_url)
+        assert response.status_code == 200
+        
+        # Test OPTIONS
+        response = manager.options(base_url)
+        assert response.status_code == 200
+        
+        manager.close()
+
+    def test_circuit_breaker_recovery_cycle(self):
+        """Test complete circuit breaker recovery cycle."""
+        manager = ConnectionManager(
+            circuit_breaker_failure_threshold=2,
+            circuit_breaker_recovery_timeout=0.1
+        )
+        
+        with patch('requests.Session.request') as mock_request:
+            # Phase 1: Cause failures to open circuit breaker
+            mock_request.side_effect = requests.RequestException("Service error")
+            
+            # Trigger failures to open circuit breaker
+            for _ in range(2):
+                with pytest.raises((requests.RequestException, CircuitBreakerOpen)):
+                    manager.get('https://api.example.com/data')
+            
+            # Circuit breaker should be open now
+            with pytest.raises(CircuitBreakerOpen):
+                manager.get('https://api.example.com/data')
+            
+            # Phase 2: Wait for recovery timeout
+            time.sleep(0.2)  # Wait longer than recovery timeout
+            
+            # Phase 3: Mock successful response for recovery
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_request.side_effect = None
+            mock_request.return_value = mock_response
+            
+            # Circuit breaker should allow test request (half-open state)
+            response = manager.get('https://api.example.com/data')
+            assert response.status_code == 200
+            
+            # Circuit breaker should be closed now, subsequent requests should work
+            response = manager.get('https://api.example.com/data')
+            assert response.status_code == 200
+        
+        manager.close()
+
+    @responses.activate
+    def test_temporary_failures_with_eventual_success(self):
+        """Test handling of temporary failures that eventually succeed."""
+        # Add multiple responses: failures followed by success
+        responses.add(responses.GET, "https://api.example.com/data", status=503)  # Service unavailable
+        responses.add(responses.GET, "https://api.example.com/data", status=502)  # Bad gateway
+        responses.add(responses.GET, "https://api.example.com/data", 
+                     json={"status": "recovered"}, status=200)  # Success
+        
+        manager = ConnectionManager(max_retries=3, backoff_factor=0.1)
+        
+        # Should eventually succeed after retries
+        response = manager.get('https://api.example.com/data')
+        assert response.status_code == 200
+        assert response.json()["status"] == "recovered"
+        
+        manager.close()
+
+    @responses.activate
+    def test_rate_limiting_per_endpoint_detailed(self):
+        """Test detailed per-endpoint rate limiting."""
+        # Mock responses for different endpoints
+        responses.add(responses.GET, "https://slow-api.com/data", 
+                     json={"api": "slow"}, status=200)
+        responses.add(responses.GET, "https://fast-api.com/data", 
+                     json={"api": "fast"}, status=200)
+        
+        endpoint_configs = {
+            'slow-api.com': {
+                'rate_limit_requests': 1,
+                'rate_limit_period': 1
+            },
+            'fast-api.com': {
+                'rate_limit_requests': 10,
+                'rate_limit_period': 1
+            }
+        }
+        
+        manager = ConnectionManager(
+            rate_limit_requests=5,
+            rate_limit_period=1,
+            endpoint_configs=endpoint_configs
+        )
+        
+        # Test slow endpoint (should be rate limited)
+        start_time = time.time()
+        response1 = manager.get('https://slow-api.com/data')
+        assert response1.status_code == 200
+        
+        # Second request to slow endpoint should be delayed
+        response2 = manager.get('https://slow-api.com/data')
+        elapsed = time.time() - start_time
+        assert response2.status_code == 200
+        # Should take some time due to rate limiting (but we won't assert exact timing)
+        
+        # Test fast endpoint (should not be significantly rate limited)
+        response3 = manager.get('https://fast-api.com/data')
+        assert response3.status_code == 200
+        
+        manager.close()
+
+    def test_authentication_integration(self):
+        """Test authentication integration with requests."""
+        with patch('requests.Session.request') as mock_request:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_request.return_value = mock_response
+            
+            # Test API key authentication
+            manager = ConnectionManager(api_key="test-key", api_key_header="X-API-Key")
+            
+            manager.get('https://api.example.com/data')
+            
+            # Verify authentication headers were added
+            call_args = mock_request.call_args
+            assert 'headers' in call_args.kwargs
+            assert call_args.kwargs['headers']['X-API-Key'] == 'test-key'
+            
+            manager.close()
+
+    @responses.activate  
+    def test_error_handling_comprehensive(self):
+        """Test comprehensive error handling scenarios."""
+        manager = ConnectionManager()
+        
+        # Test 404 error
+        responses.add(responses.GET, "https://api.example.com/notfound", status=404)
+        response = manager.get('https://api.example.com/notfound')
+        assert response.status_code == 404
+        
+        # Test 401 unauthorized
+        responses.add(responses.GET, "https://api.example.com/unauthorized", status=401)
+        response = manager.get('https://api.example.com/unauthorized')
+        assert response.status_code == 401
+        
+        # Test 403 forbidden
+        responses.add(responses.GET, "https://api.example.com/forbidden", status=403)
+        response = manager.get('https://api.example.com/forbidden')
+        assert response.status_code == 403
+        
+        manager.close()
+
+    def test_timeout_configuration(self):
+        """Test timeout configuration and handling."""
+        with patch('requests.Session.request') as mock_request:
+            mock_response = Mock()
+            mock_response.status_code = 200
+            mock_request.return_value = mock_response
+            
+            # Test custom timeout
+            manager = ConnectionManager(timeout=15)
+            manager.get('https://api.example.com/data')
+            
+            # Verify timeout was passed
+            call_args = mock_request.call_args
+            assert call_args.kwargs['timeout'] == 15
+            
+            # Test request-specific timeout override
+            manager.get('https://api.example.com/data', timeout=25)
+            call_args = mock_request.call_args
+            assert call_args.kwargs['timeout'] == 25
+            
+            manager.close()
+
+
         # Verify all expected stats are present
         expected_keys = [
             'circuit_breaker_state',

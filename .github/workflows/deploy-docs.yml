@@ -1,11 +1,12 @@
-name: Test
+
+name: Deploy Documentation
 
 on:
   push:
-  pull_request:
+    branches: [ main ]
 
 jobs:
-  test:
+  deploy-docs:
     runs-on: ubuntu-latest
 
     steps:
@@ -40,5 +41,18 @@ jobs:
     - name: Install pytest-asyncio
       run: poetry add --group dev pytest-asyncio
 
-    - name: Run tests with pytest
+    - name: Install documentation dependencies
+      run: |
+        poetry run pip install mkdocs mkdocs-material
+
+    - name: Run tests
       run: poetry run pytest
+
+    - name: Deploy documentation
+      if: success()
+      run: |
+        git config --global user.name 'github-actions[bot]'
+        git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+        poetry run mkdocs gh-deploy --force
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -360,8 +360,8 @@ class TestConnectionManager:
             assert data['url'] == 'https://httpbin.org/get'
 
         except Exception as e:
-            # Skip this test if network is unavailable
-            pytest.skip(f"Network request failed: {e}")
+            # For manual test runs, just assert False with the error
+            assert False, f"Network request failed: {e}"
 
         finally:
             manager.close()

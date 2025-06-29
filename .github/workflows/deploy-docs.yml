@@ -7,6 +7,8 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
 
 jobs:
   deploy-docs:
@@ -53,6 +55,7 @@ jobs:
       run: |
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-        poetry run mkdocs gh-deploy --force
+        git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}
+        poetry run mkdocs gh-deploy --force --clean --verbose
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

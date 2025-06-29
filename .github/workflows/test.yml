@@ -37,8 +37,5 @@ jobs:
     - name: Install project
       run: poetry install --no-interaction
 
-    - name: Install pytest-asyncio
-      run: poetry add --group dev pytest-asyncio
-
     - name: Run tests with pytest
       run: poetry run pytest

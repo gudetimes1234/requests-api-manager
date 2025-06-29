@@ -38,6 +38,10 @@ author = "agent"
 task = "workflow.run"
 args = "Clean Tests"
 
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Documentation Server"
+
 [[workflows.workflow]]
 name = "Clean Tests"
 author = "agent"
@@ -45,3 +49,16 @@ author = "agent"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "pip install -e . && PYTHONPATH=. python -m pytest tests/test_manager.py -v --tb=short -p no:asyncio --disable-warnings"
+
+[[workflows.workflow]]
+name = "Documentation Server"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "pip install markdown && python simple_docs_server.py"
+waitForPort = 5000
+
+[[ports]]
+localPort = 5000
+externalPort = 80

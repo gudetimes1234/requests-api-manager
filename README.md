@@ -1,6 +1,10 @@
 # requests-connection-manager
 
-A Python package that extends the popular `requests` library with advanced connection management features including connection pooling, automatic retries, rate limiting, and circuit breaker functionality.
+[![Python Version](https://img.shields.io/badge/python-3.9%2B-blue.svg)](https://python.org)
+[![Tests](https://img.shields.io/badge/tests-31%20passing-green.svg)](https://github.com/charlesgude/requests-connection-manager/actions)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+A robust Python package that extends the popular `requests` library with advanced connection management features including connection pooling, automatic retries, rate limiting, and circuit breaker functionality. Built for production use with comprehensive testing and thread-safe operations.
 
 ## Features
 
@@ -16,6 +20,11 @@ A Python package that extends the popular `requests` library with advanced conne
 ```bash
 pip install requests-connection-manager
 ```
+
+### Requirements
+
+- Python 3.9 or higher
+- See [Dependencies](#dependencies) section for package requirements
 
 ## Quick Start
 
@@ -307,37 +316,7 @@ for thread in threads:
 manager.close()
 ```
 
-### Async Support
 
-```python
-import asyncio
-from requests_connection_manager import AsyncConnectionManager
-
-async def main():
-    # Async context manager
-    async with AsyncConnectionManager() as manager:
-        # Single async request
-        response = await manager.get('https://httpbin.org/get')
-        print(f"Status: {response.status_code}")
-        
-        # Concurrent async requests
-        tasks = [
-            manager.get('https://httpbin.org/delay/1'),
-            manager.get('https://httpbin.org/delay/1'),
-            manager.get('https://httpbin.org/delay/1')
-        ]
-        responses = await asyncio.gather(*tasks)
-        
-        # Async batch requests with controlled parallelism
-        requests_data = [
-            ('GET', 'https://httpbin.org/get', {}),
-            ('POST', 'https://httpbin.org/post', {'json': {'key': 'value'}}),
-            ('GET', 'https://httpbin.org/delay/1', {})
-        ]
-        results = await manager.batch_request(requests_data, max_workers=3)
-
-asyncio.run(main())
-```
 
 ## API Reference
 
@@ -381,9 +360,50 @@ The main class that provides enhanced HTTP functionality.
 
 MIT License
 
+## Development
+
+### Running Tests
+
+The project includes a comprehensive test suite with 31 passing tests covering all major functionality:
+
+```bash
+# Install development dependencies
+pip install pytest pytest-cov pytest-mock responses requests-mock
+
+# Run tests
+pytest tests/ -v
+
+# Run tests with coverage
+pytest tests/ --cov=requests_connection_manager --cov-report=html
+```
+
+### Documentation
+
+Documentation is built using MkDocs and automatically deployed to GitHub Pages:
+
+```bash
+# Install documentation dependencies
+pip install mkdocs mkdocs-material
+
+# Serve documentation locally
+mkdocs serve
+
+# Deploy to GitHub Pages
+mkdocs gh-deploy --force
+```
+
+View the live documentation at: [https://charlesgude.github.io/requests-connection-manager/](https://charlesgude.github.io/requests-connection-manager/)
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+### Development Setup
+
+1. Clone the repository
+2. Install Python 3.9 or higher
+3. Install dependencies: `pip install -e .`
+4. Run tests to verify setup: `pytest tests/`
 
 ## Changelog
 

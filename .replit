@@ -1,4 +1,4 @@
-modules = ["python-3.11"]
+modules = ["python-3.9"]
 
 [nix]
 channel = "stable-24_05"
@@ -44,7 +44,7 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "pip install -e . && PYTHONPATH=. python -m pytest tests/test_manager.py -v --tb=short -p no:asyncio --disable-warnings"
+args = "python3.9 -m pip install pytest pytest-cov pytest-mock responses requests-mock && python3.9 -m pip install -e . && PYTHONPATH=. python3.9 -m pytest tests/test_manager.py -v --tb=short -p no:asyncio --disable-warnings"
 
 [[ports]]
 localPort = 5000

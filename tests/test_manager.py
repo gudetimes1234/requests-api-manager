@@ -400,11 +400,14 @@ class TestConnectionManager:
     # @patch('requests.Session.request')
     # def test_retry_on_failure_scenarios(self, mock_request):
     #     """Test retry behavior on different types of failures."""
-    #     # Mock response that raises retriable HTTP status codes
+    #     # Track call count with a counter
+    #     call_counter = {'count': 0}
+    #     
     #     def side_effect(*args, **kwargs):
+    #         call_counter['count'] += 1
     #         response = Mock()
     #         # First two calls return 500 status (retriable)
-    #         if mock_request.call_count <= 2:
+    #         if call_counter['count'] <= 2:
     #             response.status_code = 500
     #             response.raise_for_status.side_effect = requests.exceptions.HTTPError("500 Server Error")
     #         else:
@@ -421,8 +424,8 @@ class TestConnectionManager:
     #     response = manager.get('https://api.example.com/data')
     #     assert response.status_code == 200
 
-    #     # Verify the request was made
-    #     assert mock_request.call_count >= 1
+    #     # Verify multiple requests were made (retries occurred)
+    #     assert call_counter['count'] >= 3
 
     #     manager.close()
 
@@ -795,55 +798,55 @@ class TestConnectionManager:
 
     #     manager.close()
 
-    # @responses.activate
-    # def test_http_methods_comprehensive(self):
-    #     """Test all HTTP methods comprehensively."""
-    #     base_url = "https://api.example.com/resource"
+    @responses.activate
+    def test_http_methods_comprehensive(self):
+        """Test all HTTP methods comprehensively."""
+        base_url = "https://api.example.com/resource"
 
-    #     # Mock responses for all HTTP methods
-    #     responses.add(responses.GET, base_url, json={"method": "GET"}, status=200)
-    #     responses.add(responses.POST, base_url, json={"method": "POST"}, status=201)
-    #     responses.add(responses.PUT, base_url, json={"method": "PUT"}, status=200)
-    #     responses.add(responses.DELETE, base_url, status=204)
-    #     responses.add(responses.PATCH, base_url, json={"method": "PATCH"}, status=200)
-    #     responses.add(responses.HEAD, base_url, status=200)
-    #     responses.add(responses.OPTIONS, base_url, status=200)
+        # Mock responses for all HTTP methods
+        responses.add(responses.GET, base_url, json={"method": "GET"}, status=200)
+        responses.add(responses.POST, base_url, json={"method": "POST"}, status=201)
+        responses.add(responses.PUT, base_url, json={"method": "PUT"}, status=200)
+        responses.add(responses.DELETE, base_url, status=204)
+        responses.add(responses.PATCH, base_url, json={"method": "PATCH"}, status=200)
+        responses.add(responses.HEAD, base_url, status=200)
+        responses.add(responses.OPTIONS, base_url, status=200)
 
-    #     manager = ConnectionManager()
+        manager = ConnectionManager()
 
-    #     # Test GET
-    #     response = manager.get(base_url)
-    #     assert response.status_code == 200
-    #     assert response.json()["method"] == "GET"
+        # Test GET
+        response = manager.get(base_url)
+        assert response.status_code == 200
+        assert response.json()["method"] == "GET"
 
-    #     # Test POST
-    #     response = manager.post(base_url, json={"data": "test"})
-    #     assert response.status_code == 201
-    #     assert response.json()["method"] == "POST"
+        # Test POST
+        response = manager.post(base_url, json={"data": "test"})
+        assert response.status_code == 201
+        assert response.json()["method"] == "POST"
 
-    #     # Test PUT
-    #     response = manager.put(base_url, json={"data": "test"})
-    #     assert response.status_code == 200
-    #     assert response.json()["method"] == "PUT"
+        # Test PUT
+        response = manager.put(base_url, json={"data": "test"})
+        assert response.status_code == 200
+        assert response.json()["method"] == "PUT"
 
-    #     # Test DELETE
-    #     response = manager.delete(base_url)
-    #     assert response.status_code == 204
+        # Test DELETE
+        response = manager.delete(base_url)
+        assert response.status_code == 204
 
-    #     # Test PATCH
-    #     response = manager.patch(base_url, json={"data": "test"})
-    #     assert response.status_code == 200
-    #     assert response.json()["method"] == "PATCH"
+        # Test PATCH
+        response = manager.patch(base_url, json={"data": "test"})
+        assert response.status_code == 200
+        assert response.json()["method"] == "PATCH"
 
-    #     # Test HEAD
-    #     response = manager.head(base_url)
-    #     assert response.status_code == 200
+        # Test HEAD
+        response = manager.head(base_url)
+        assert response.status_code == 200
 
-    #     # Test OPTIONS
-    #     response = manager.options(base_url)
-    #     assert response.status_code == 200
+        # Test OPTIONS
+        response = manager.options(base_url)
+        assert response.status_code == 200
 
-    #     manager.close()
+        manager.close()
 
     def test_circuit_breaker_recovery_cycle(self):
         """Test complete circuit breaker recovery cycle."""

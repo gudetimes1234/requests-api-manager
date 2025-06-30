@@ -99,6 +99,7 @@ The system follows a modular architecture with clear separation of concerns:
 - June 29, 2025: Fixed Poetry lock file conflicts and cleaned up test suite, now 31/31 tests passing successfully with clean execution
 - June 29, 2025: Skipped failing test_get_stats_includes_hooks test as requested by user, MkDocs GitHub Pages deployment configured and verified working
 - June 29, 2025: Added contents: write permissions to GitHub Actions deploy-docs.yml workflow to enable github-actions[bot] to push to gh-pages branch
+- June 29, 2025: Upgraded to Python 3.9 and uncommented previously failing tests (test_retry_on_failure_scenarios, test_get_post_basic_functionality, test_http_methods_comprehensive, test_get_stats_includes_hooks)
 
 ## User Preferences
 

@@ -281,19 +281,19 @@ class TestPluginSystem:
         
         manager.close()
     
-    # def test_get_stats_includes_hooks(self):
-    #     """Test that get_stats includes hook information."""
-    #     manager = ConnectionManager()
-    #     
-    #     def test_hook(context):
-    #         pass
-    #     
-    #     manager.register_pre_request_hook(test_hook)
-    #     
-    #     stats = manager.get_stats()
-    #     
-    #     assert 'registered_hooks' in stats
-    #     assert 'pre_request' in stats['registered_hooks']
-    #     assert 'test_hook' in stats['registered_hooks']['pre_request']
-    #     
-    #     manager.close()
+    def test_get_stats_includes_hooks(self):
+        """Test that get_stats includes hook information."""
+        manager = ConnectionManager()
+        
+        def test_hook(context):
+            pass
+        
+        manager.register_pre_request_hook(test_hook)
+        
+        stats = manager.get_stats()
+        
+        assert 'registered_hooks' in stats
+        assert 'pre_request' in stats['registered_hooks']
+        assert 'test_hook' in stats['registered_hooks']['pre_request']
+        
+        manager.close()
